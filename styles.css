@@ -1,4 +1,4 @@
-/* Travellers Market — "Nature Explorer" palette */
+/* Roamly — "Nature Explorer" palette */
 :root{
   --green:#1E4D2B;
   --green-deep:#143A20;
@@ -35,7 +35,7 @@ button{font:inherit;color:inherit;}
 }
 .header-inner{max-width:1240px;margin:0 auto;padding:16px 24px;display:flex;flex-wrap:wrap;gap:16px 20px;align-items:center;justify-content:space-between;}
 .logo{display:flex;align-items:center;gap:10px;background:none;border:none;padding:0;cursor:pointer;color:var(--green);text-align:left;}
-.logo span{font-weight:800;font-size:18px;line-height:1.05;letter-spacing:-0.3px;}
+.logo span{font-weight:800;font-size:24px;line-height:1;letter-spacing:-0.6px;}
 .tabs{display:flex;flex-wrap:wrap;gap:4px;}
 .tab{padding:10px 16px;border-radius:999px;border:none;background:none;font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;transition:background .15s ease,color .15s ease;}
 .tab:hover:not(.active){background:rgba(30,77,43,0.06);}

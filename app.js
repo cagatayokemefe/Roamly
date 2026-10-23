@@ -1,5 +1,6 @@
 // ---------- Constants ----------
-const STORE_KEY = 'tasi-state-v1';
+const STORE_KEY = 'roamly-state-v1';
+const OLD_STORE_KEY = 'tasi-state-v1'; // pre-rename key, read once so saved data carries over
 const LIMIT = 430; // personal duty-free allowance per traveler, EUR
 const CATEGORIES = ['Electronics','Clothing','Cosmetics','General','Alcohol'];
 const CITIES = {
@@ -70,7 +71,7 @@ function seed(){
 }
 
 let state;
-try { state = JSON.parse(localStorage.getItem(STORE_KEY)) || seed(); } catch { state = seed(); }
+try { state = JSON.parse(localStorage.getItem(STORE_KEY) || localStorage.getItem(OLD_STORE_KEY)) || seed(); } catch { state = seed(); }
 function save(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
 
 const tripById = id => state.trips.find(t => t.id === id);

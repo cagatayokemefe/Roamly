@@ -1,6 +1,6 @@
-# Travellers Market
+# Roamly
 
-A peer-to-peer marketplace prototype: people who are already flying into Turkey carry personal items for buyers, and every request is checked against Turkey's €430 personal duty-free allowance.
+Roamly is a peer-to-peer marketplace prototype: people who are already flying into Turkey carry personal items for buyers, and every request is checked against Turkey's €430 personal duty-free allowance.
 
 > Prototype for planning purposes — no real payments, accounts or customs data are processed.
 
