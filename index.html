@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Travellers Market — Bring the world home</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><path d=%22M12 23.5s8.5-7.4 8.5-14a8.5 8.5 0 1 0-17 0c0 6.6 8.5 14 8.5 14z%22 fill=%22%231E4D2B%22/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Caveat:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Reusable icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <path id="i-plane" d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+  </defs>
+</svg>
+
+<header class="site-header">
+  <div class="header-inner">
+    <button class="logo" data-view="home" aria-label="Travellers Market home">
+      <svg width="42" height="42" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 23.5s8.5-7.4 8.5-14a8.5 8.5 0 1 0-17 0c0 6.6 8.5 14 8.5 14z" fill="#1E4D2B"/><g transform="translate(6.4 3.8) scale(0.47)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plane"/></g></svg>
+      <span>Travellers<br>Market</span>
+    </button>
+    <nav class="tabs" aria-label="Main">
+      <button class="tab active" data-view="home">Home</button>
+      <button class="tab" data-view="browse">Explore trips</button>
+      <button class="tab" data-view="list-trip">List a trip</button>
+      <button class="tab" data-view="detail">Request</button>
+      <button class="tab" data-view="dashboard">Dashboard</button>
+    </nav>
+    <div class="header-tools">
+      <label class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="sr-only">Search trips</span>
+        <input type="search" id="search" placeholder="Search cities or travelers…">
+      </label>
+      <button class="icon-btn" aria-label="Notifications" onclick="showView('dashboard')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="dot" id="notif-dot"></span>
+      </button>
+      <span class="avatar-lg" role="img" aria-label="Your profile">Y</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- HOME -->
+  <section class="view active" id="view-home">
+    <div class="hero wrap">
+      <div class="hero-copy">
+        <span class="pill-tag">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plane"/></svg>
+          Peer-to-peer · Personal luggage · Not for resale
+        </span>
+        <h1>Bring the <span>World</span><br>Home with You</h1>
+        <p>Someone's already flying to İstanbul. Ask a traveler to carry what you need — every request is checked against Turkey's €430 personal allowance.</p>
+        <div class="cta-row">
+          <button class="btn btn-primary" onclick="showView('browse')">Explore trips
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+          <button class="btn btn-outline" onclick="showView('list-trip')">List a trip</button>
+        </div>
+      </div>
+
+      <div class="hero-art">
+        <div class="hero-illustration">
+          <svg viewBox="0 0 560 440" aria-hidden="true">
+            <rect width="560" height="440" fill="#F6E3C1"/>
+            <circle cx="410" cy="175" r="70" fill="#F2B866"/>
+            <path d="M0 300 L90 205 L170 270 L262 160 L360 262 L440 192 L560 288 V440 H0Z" fill="#A9C28F"/>
+            <path d="M0 345 L120 255 L222 332 L330 236 L452 322 L560 272 V440 H0Z" fill="#3E7C3A"/>
+            <path d="M0 392 C120 352 220 402 320 372 C420 342 482 382 560 362 V440 H0Z" fill="#1E4D2B"/>
+            <path d="M372 372 V322 M436 372 V322" stroke="#143A20" stroke-width="5"/>
+            <path d="M369 324 L372 306 L375 324Z M433 324 L436 306 L439 324Z" fill="#143A20"/>
+            <path d="M380 374 a24 24 0 0 1 48 0z" fill="#143A20"/>
+            <path d="M392 352 a12 12 0 0 1 24 0z" fill="#143A20"/>
+            <path class="flight-path" d="M60 128 C140 64 222 168 302 106 S430 62 470 86" fill="none" stroke="#1E4D2B" stroke-width="2.5" stroke-dasharray="6 9" stroke-linecap="round"/>
+            <g transform="translate(458 58) rotate(25) scale(1.6)" fill="none" stroke="#1E4D2B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plane"/></g>
+          </svg>
+        </div>
+        <button class="hero-pass" id="hero-pass" title="Next trip — click to request">
+          <span class="hero-pass-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plane"/></svg>
+          </span>
+          <span>
+            <span class="hero-pass-route" id="pass-route">PRG → IST · 26 Oct</span>
+            <span class="hero-pass-meta" id="pass-meta">Eliška N. · 1 item left · €181 allowance</span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div class="wrap trust-row">
+      <div class="trust-card">
+        <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+        <span><b>Global community</b><small>Rated travelers from 10 cities</small></span>
+      </div>
+      <div class="trust-card">
+        <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+        <span><b>Secure escrow</b><small>Paid only when you confirm delivery</small></span>
+      </div>
+      <div class="trust-card">
+        <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg></span>
+        <span><b>Duty-free checked</b><small>Every request stays within €430</small></span>
+      </div>
+    </div>
+
+    <div class="wrap section">
+      <div class="section-head">
+        <h2>What travelers carry</h2>
+        <button class="text-link" onclick="showView('browse')">See all trips →</button>
+      </div>
+      <div class="cat-tiles">
+        <button class="cat-tile sand" data-cat-tile="Electronics">
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></span>Electronics
+        </button>
+        <button class="cat-tile mint" data-cat-tile="Clothing">
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.4 6.6 16 3a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.2 1.3l1.6 2.6a1 1 0 0 0 1.2.4L8 10v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V10l1.8.9a1 1 0 0 0 1.2-.4l1.6-2.6a1 1 0 0 0-.2-1.3z"/></svg></span>Clothing
+        </button>
+        <button class="cat-tile sand" data-cat-tile="Cosmetics">
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span>Cosmetics
+        </button>
+        <button class="cat-tile mint" data-cat-tile="General">
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg></span>Gifts &amp; general
+        </button>
+        <button class="cat-tile sand" data-cat-tile="Alcohol">
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 22h8"/><path d="M12 15v7"/><path d="M7 2h10l-.5 6a4.5 4.5 0 0 1-9 0z"/></svg></span>Duty-free drinks
+        </button>
+      </div>
+    </div>
+
+    <div class="wrap section">
+      <div class="green-banner">
+        <svg class="banner-path" viewBox="0 0 600 200" aria-hidden="true"><path d="M20 170 C160 40 300 190 440 70 S560 40 590 30" fill="none" stroke="#A9C28F" stroke-width="2.5" stroke-dasharray="6 10" stroke-linecap="round"/></svg>
+        <div class="banner-copy">
+          <h2>Flying to Turkey soon?<br>Your spare space can pay.</h2>
+          <p>List your trip, choose what you're happy to carry, and get paid when the buyer confirms delivery.</p>
+        </div>
+        <button class="btn btn-sand" onclick="showView('list-trip')">List your trip
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="wrap section">
+      <div class="section-head"><h2>How it works</h2></div>
+      <div class="steps">
+        <div class="card step-card"><span class="script-num">1.</span><h3>A traveler posts a trip</h3><p>Route, date, how many items and which kinds they'll carry.</p></div>
+        <div class="card step-card"><span class="script-num">2.</span><h3>You request an item</h3><p>Checked live against what's left of their duty-free allowance.</p></div>
+        <div class="card step-card"><span class="script-num">3.</span><h3>Paid on delivery</h3><p>Your payment waits in escrow until the item is in your hands.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BROWSE -->
+  <section class="view" id="view-browse">
+    <div class="wrap page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Trips into <span>Turkey</span></h1>
+          <p class="page-sub"><span id="trip-count">6 OPEN</span> · sorted by departure</p>
+        </div>
+      </div>
+      <div class="filters" role="group" aria-label="Filter trips">
+        <button class="chip on" data-filter="all">All routes</button>
+        <button class="chip" data-filter="Europe">Europe</button>
+        <button class="chip" data-filter="Gulf">Gulf</button>
+        <button class="chip" data-filter="North America">North America</button>
+        <button class="chip" data-filter="week">This week</button>
+      </div>
+      <div class="trip-grid" id="trip-grid"></div>
+    </div>
+  </section>
+
+  <!-- LIST A TRIP -->
+  <section class="view" id="view-list-trip">
+    <div class="wrap page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">List your <span>trip</span></h1>
+          <p class="page-sub">Tell buyers when you're flying and what you're happy to carry.</p>
+        </div>
+      </div>
+      <div class="card form-card narrow">
+        <div class="two-col">
+          <div class="form-group">
+            <label for="lt-city">Departure city</label>
+            <select id="lt-city"></select>
+          </div>
+          <div class="form-group">
+            <label for="lt-date">Travel date</label>
+            <input type="date" id="lt-date">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="lt-capacity">How many items can you carry?</label>
+          <input type="number" id="lt-capacity" min="1" max="5" placeholder="e.g. 2">
+          <div class="form-hint">Keep this realistic — each item still has to fit your own €430 personal allowance.</div>
+        </div>
+        <div class="form-group">
+          <label>What are you willing to bring?</label>
+          <div class="cat-picker" id="lt-categories"></div>
+          <div class="form-hint warn">Phones are excluded — they carry special limits and IMEI registration requirements.</div>
+        </div>
+        <div class="form-group">
+          <label for="lt-notes">Notes for buyers <span class="muted-label">(optional)</span></label>
+          <textarea rows="3" id="lt-notes" placeholder="e.g. No oversized items, arriving with one carry-on only"></textarea>
+        </div>
+        <div class="form-error" id="lt-error"></div>
+        <button class="btn btn-primary btn-block" onclick="submitTrip()">Publish trip</button>
+        <div class="confirm-banner" id="trip-confirm">✓ Trip published — buyers can now send you requests.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DETAIL / REQUEST -->
+  <section class="view" id="view-detail">
+    <div class="wrap page">
+      <button class="text-link back" onclick="showView('browse')">← All trips</button>
+      <div class="trip-banner">
+        <svg class="banner-path" viewBox="0 0 500 140" aria-hidden="true"><path d="M10 120 C120 20 250 130 360 50 S470 20 495 15" fill="none" stroke="#A9C28F" stroke-width="2.5" stroke-dasharray="6 10" stroke-linecap="round"/></svg>
+        <div>
+          <div class="trip-banner-date" id="detail-date">26 OCT</div>
+          <h1 id="detail-route">Prague → Istanbul</h1>
+        </div>
+        <div class="trip-banner-tags" id="detail-tags"></div>
+      </div>
+
+      <div class="detail-wrap">
+        <div class="detail-main">
+          <p class="detail-desc" id="detail-desc"></p>
+          <div class="notice" id="detail-blocked"></div>
+
+          <div id="request-form">
+            <h2 class="sub-title">Request an item</h2>
+            <div class="card form-card">
+              <div class="form-group">
+                <label for="req-item">What do you need?</label>
+                <input type="text" id="req-item" placeholder="e.g. Sony WH-1000XM6 headphones">
+              </div>
+              <div class="two-col">
+                <div class="form-group">
+                  <label for="price-input">Price (EUR)</label>
+                  <input type="number" id="price-input" min="0" placeholder="0" oninput="updateLimit()">
+                </div>
+                <div class="form-group">
+                  <label for="cat-select">Category</label>
+                  <select id="cat-select" onchange="updateLimit()">
+                    <option value="General">Gifts &amp; general</option>
+                    <option value="Electronics">Electronics</option>
+                    <option value="Clothing">Clothing</option>
+                    <option value="Cosmetics">Cosmetics</option>
+                    <option value="Alcohol">Duty-free drinks</option>
+                    <option value="Phone">Phone (special rules)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="req-link">Link <span class="muted-label">(optional)</span></label>
+                <input type="text" id="req-link" placeholder="https://">
+              </div>
+
+              <div class="limit-box">
+                <div class="row"><span id="limit-label">Traveler's duty-free allowance</span><b id="limit-total">€0 / €430</b></div>
+                <div class="bar"><div class="bar-used" id="limit-used"></div><div class="bar-fill" id="limit-bar"></div></div>
+                <div class="legend">
+                  <span><i class="sw used"></i><span id="limit-used-label">Already requested · €0</span></span>
+                  <span><i class="sw yours"></i>Your item</span>
+                </div>
+                <div class="limit-msg" id="limit-msg" role="status"></div>
+              </div>
+
+              <div class="form-error" id="req-error"></div>
+              <button class="btn btn-primary btn-block" onclick="sendRequest()">Send request</button>
+            </div>
+          </div>
+        </div>
+
+        <aside class="detail-side">
+          <div class="card side-card">
+            <div class="traveler-head">
+              <span class="avatar-xl" id="side-init">E</span>
+              <div>
+                <div class="traveler-name" id="side-name"></div>
+                <div class="traveler-meta"><span id="side-rating"></span> · <span id="side-trips"></span> trips completed</div>
+              </div>
+            </div>
+          </div>
+          <div class="side-card sand-card">
+            <h4>How you pay</h4>
+            <div class="side-row"><span>Pay by</span><b>Card</b></div>
+            <div class="side-row"><span>Held in</span><b>Escrow</b></div>
+            <div class="side-row"><span>Released</span><b>When you confirm delivery</b></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="view" id="view-dashboard">
+    <div class="wrap page">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Your journeys</h1>
+          <p class="page-sub" id="dash-count">0 active</p>
+        </div>
+        <button class="btn btn-primary" onclick="showView('list-trip')">+ List a trip</button>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat green"><span>Held in escrow</span><b id="dash-escrow">€0</b></div>
+        <div class="stat sand"><span>Awaiting a traveler</span><b id="dash-waiting">€0</b></div>
+        <div class="stat mint"><span>Earned carrying</span><b id="dash-earned">€0</b></div>
+      </div>
+
+      <div class="dash-cols">
+        <div>
+          <h2 class="sub-title">Requests you've sent</h2>
+          <div id="dash-sent"></div>
+        </div>
+        <div>
+          <h2 class="sub-title">Trips you're carrying</h2>
+          <div id="dash-carrying"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DISPUTE -->
+  <section class="view" id="view-dispute">
+    <div class="wrap page">
+      <button class="text-link back" onclick="showView('dashboard')">← Back to dashboard</button>
+      <div class="dispute-header">
+        <h1 class="page-title" id="dispute-title">Dispute</h1>
+        <span class="status pending" id="dispute-status">Under review</span>
+      </div>
+
+      <div class="card timeline" id="dispute-timeline"></div>
+
+      <div class="card form-card narrow" id="dispute-form">
+        <div class="form-group">
+          <label for="dispute-reason">What went wrong?</label>
+          <select id="dispute-reason">
+            <option>Item not received</option>
+            <option>Item different from what was requested</option>
+            <option>Item damaged</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="dispute-desc">Describe the issue</label>
+          <textarea rows="4" id="dispute-desc" placeholder="Add any details that will help resolve this quickly"></textarea>
+        </div>
+        <div class="evidence-drop">Attach photos or a tracking reference (optional)</div>
+        <div class="form-error" id="dispute-error"></div>
+        <button class="btn btn-primary btn-block" onclick="submitDispute()">Submit dispute</button>
+      </div>
+
+      <div class="narrow" id="dispute-resolve">
+        <div class="notice" style="display:block;">Funds stay locked while support reviews this. In the prototype you can play the reviewer:</div>
+        <div class="dash-actions">
+          <button class="btn btn-sm btn-primary" onclick="resolveDispute('refund')">Refund buyer</button>
+          <button class="btn btn-sm btn-outline" onclick="resolveDispute('release')">Release to traveler</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <div>
+      <div class="footer-mark">Travellers Market</div>
+      <div>More than a marketplace… a travel community.</div>
+    </div>
+    <div class="footer-note">Prototype for planning purposes — no real payments, accounts or customs data are processed. · <button class="text-link light" onclick="resetDemo()">Reset demo data</button></div>
+  </div>
+</footer>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
