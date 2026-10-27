@@ -16,12 +16,13 @@ const CITIES = {
   YYZ:{city:'Toronto', region:'North America'},
 };
 const ACTIVE = ['pending','escrow','disputed'];      // still in progress
-const HOLDS_SLOT = ['pending','escrow','disputed','completed']; // uses capacity + allowance
+const HOLDS_SLOT = ['pending','escrow','disputed','completed','split']; // uses capacity + allowance
 const STATUS = {
   pending:  {label:'Awaiting traveler', cls:'pending', step:1},
   escrow:   {label:'In escrow',         cls:'escrow',  step:2},
   disputed: {label:'Disputed',          cls:'disputed',step:2},
   completed:{label:'Delivered',         cls:'done',    step:4},
+  split:    {label:'Settled by split',  cls:'done',    step:4},
   refunded: {label:'Refunded',          cls:'muted',   step:0},
   declined: {label:'Declined',          cls:'muted',   step:0},
   cancelled:{label:'Cancelled',         cls:'muted',   step:0},
@@ -217,7 +218,9 @@ function renderDetail(){
   $('limit-label').textContent = trip.mine ? 'Your duty-free allowance' : `${trip.traveler.split(' ')[0]}'s duty-free allowance`;
 
   let blocked = '';
-  if(trip.mine) blocked = 'This is your own trip — buyers will send requests to you.';
+  if(trip.mine && !canPayOnChain(trip)) blocked = trip.wallet
+    ? 'This is your own trip — switch MetaMask to another account to test requesting on it.'
+    : 'This is your own trip — buyers will send requests to you.';
   else if(!left) blocked = 'This trip is full.';
   $('detail-blocked').textContent = blocked;
   $('detail-blocked').style.display = blocked ? 'block' : 'none';
@@ -233,6 +236,7 @@ function checkRequest(){
   const total = used + price;
   const base = {total, used, price};
   if(!trip) return {...base, ok:false, msg:''};
+  if(trip.mine && !canPayOnChain(trip)) return {...base, ok:false, msg:'', neutral:true};
   if(cat === 'Phone') return {...base, ok:false, msg:'Phones are limited to one per traveler per 3 years and need IMEI registration — not available yet.'};
   if(!trip.categories.includes(cat)) return {...base, ok:false, msg:`${trip.traveler} isn't carrying ${cat.toLowerCase()} on this trip.`};
   if(total > LIMIT) return {...base, ok:false, msg:`Over the allowance — this traveler has €${LIMIT - used} left on this trip.`};
@@ -251,6 +255,8 @@ function updateLimit(){
   bar.classList.toggle('over', bad);
   $('limit-msg').textContent = res.msg;
   $('limit-msg').classList.toggle('warn', bad);
+  const trip = tripById(state.selectedTripId);
+  if(trip) renderPayMode(trip);
 }
 
 function resetRequestForm(){
@@ -259,24 +265,32 @@ function resetRequestForm(){
   $('req-error').textContent = '';
 }
 
-function sendRequest(){
+async function sendRequest(){
   const trip = tripById(state.selectedTripId);
   const item = $('req-item').value.trim();
   const link = $('req-link').value.trim();
   const price = parseFloat($('price-input').value) || 0;
   const err = $('req-error');
-  if(!trip || trip.mine || !slotsLeft(trip)) return;
+  const onChain = canPayOnChain(trip);
+  if(!trip || (trip.mine && !onChain) || !slotsLeft(trip)) return;
   if(!item){ err.textContent = 'Tell the traveler what you need.'; return; }
   if(link && !/^https?:\/\/\S+$/i.test(link)){ err.textContent = 'The link should start with http:// or https://'; return; }
   const res = checkRequest();
   if(!res.ok){ err.textContent = res.msg; return; }
   err.textContent = '';
   const req = {id:uid('r'), tripId:trip.id, item, link, price, category:$('cat-select').value, buyer:'you', status:'pending', history:[{label:'Request sent', at:nowIso()}]};
+  if(onChain){
+    const chain = await payOnChain(req, trip);
+    if(!chain) return;
+    req.chain = chain;
+    req.history[0].label = `Request sent — ${fmtDeal(req, chain.amount)} locked in the escrow contract`;
+  }
   state.requests.push(req);
   save();
   resetRequestForm();
-  toast(`Request sent to ${trip.traveler}`);
-  scheduleAutoAccept(req.id);
+  toast(onChain ? `Paid into escrow — ${trip.traveler} can now accept` : `Request sent to ${trip.traveler}`);
+  if(onChain) syncDeal(req).catch(() => {});
+  else scheduleAutoAccept(req.id);
   showView('dashboard');
 }
 
@@ -284,7 +298,7 @@ function sendRequest(){
 function scheduleAutoAccept(id){
   setTimeout(() => {
     const req = reqById(id);
-    if(!req || req.status !== 'pending') return;
+    if(!req || req.status !== 'pending' || req.chain) return;
     const trip = tripById(req.tripId);
     setStatus(req, 'escrow', `Accepted — €${req.price} locked in escrow`);
     toast(`${trip.traveler} accepted “${req.item}” — €${req.price} is in escrow`);
@@ -304,7 +318,8 @@ function submitTrip(){
   if(!(capacity >= 1 && capacity <= 5)){ err.textContent = 'You can carry between 1 and 5 items.'; return; }
   if(!categories.length){ err.textContent = 'Choose at least one category.'; return; }
   err.textContent = '';
-  state.trips.push({id:uid('t'), code, date, traveler:'You', capacity, categories, notes:$('lt-notes').value.trim(), mine:true, rating:0, completed:0});
+  state.trips.push({id:uid('t'), code, date, traveler:'You', capacity, categories, notes:$('lt-notes').value.trim(), mine:true, rating:0, completed:0,
+    wallet:chainReady() ? wallet.account : null});
   save();
   $('trip-confirm').classList.add('show');
   ['lt-city','lt-date','lt-capacity','lt-notes'].forEach(id => $(id).value = '');
@@ -338,15 +353,18 @@ function renderDashboard(){
   $('dash-sent').innerHTML = sent.length ? sent.map(r => {
     const trip = tripById(r.tripId);
     let actions = '';
-    if(r.status === 'pending') actions = `<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${r.id}">Cancel request</button>`;
-    if(r.status === 'escrow') actions = `<button class="btn btn-sm btn-primary" data-act="confirm" data-id="${r.id}">Confirm received</button>
+    if(r.chain) actions = chainButtons(r, 'buyer');
+    else if(r.status === 'pending') actions = `<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${r.id}">Cancel request</button>`;
+    else if(r.status === 'escrow') actions = `<button class="btn btn-sm btn-primary" data-act="confirm" data-id="${r.id}">Confirm received</button>
       <button class="btn btn-sm btn-ghost" data-act="dispute" data-id="${r.id}">Raise a dispute</button>`;
-    if(r.status === 'disputed') actions = `<button class="btn btn-sm btn-ghost" data-act="dispute" data-id="${r.id}">View dispute</button>`;
+    else if(r.status === 'disputed') actions = `<button class="btn btn-sm btn-ghost" data-act="dispute" data-id="${r.id}">View dispute</button>`;
     return `
       <div class="dash-item">
         <div class="dash-item-top"><b>${esc(r.item)}</b>${statusBadge(r)}</div>
         <p class="dash-sub">${esc(trip.traveler)} · ${esc(trip.code)} → IST · ${fmtDay(trip.date)} · €${r.price}</p>
+        ${r.chain ? chainItemMeta(r) : ''}
         ${progress(STATUS[r.status].step)}
+        ${r.chain && chainHint(r, 'buyer') ? `<div class="form-hint">${chainHint(r, 'buyer')}</div>` : ''}
         ${actions ? `<div class="dash-actions">${actions}</div>` : ''}
       </div>`;
   }).join('') : `<div class="empty">No requests yet. <span class="link" onclick="showView('browse')">Explore trips →</span></div>`;
@@ -354,6 +372,7 @@ function renderDashboard(){
   $('dash-carrying').innerHTML = myTrips.length ? myTrips.map(t => {
     const reqs = tripRequests(t).filter(r => r.status !== 'cancelled');
     const payout = reqs.filter(r => r.status === 'completed').reduce((s, r) => s + r.price, 0);
+    const payTo = t.wallet ? `<div class="side-row"><span>Payouts to</span><b>${esc(shortAddr(t.wallet))}</b></div>` : '';
     const past = !isUpcoming(t);
     const hasPending = reqs.some(r => r.status === 'pending');
     return `
@@ -361,14 +380,18 @@ function renderDashboard(){
         <div class="dash-item-top"><b>${esc(t.code)} ✈ IST <span class="muted">· ${fmtDay(t.date)}</span></b>
           <span class="status ${past ? 'done' : 'muted'}">${past ? 'Completed' : `${slotsLeft(t)} of ${t.capacity} free`}</span></div>
         <div class="side-row"><span>Allowance used</span><b>€${allowanceUsed(t)} / €${LIMIT}</b></div>
+        ${payTo}
         ${payout ? `<div class="side-row"><span>Payout</span><b style="color:var(--green)">€${payout} released</b></div>` : ''}
         ${reqs.length ? reqs.map(r => `
           <div class="incoming ${r.status === 'pending' ? '' : 'quiet'}">
             <div class="dash-item-top"><span>${esc(r.item)} <span class="muted">€${r.price} · ${esc(r.buyer)}</span></span>${statusBadge(r, true)}</div>
+            ${r.chain ? `${chainItemMeta(r)}
+              ${chainHint(r, 'traveler') ? `<div class="form-hint">${chainHint(r, 'traveler')}</div>` : ''}
+              ${chainButtons(r, 'traveler') ? `<div class="dash-actions">${chainButtons(r, 'traveler')}</div>` : ''}` : `
             ${r.status === 'pending' ? `<div class="dash-actions">
               <button class="btn btn-sm btn-primary" data-act="accept" data-id="${r.id}">Accept</button>
               <button class="btn btn-sm btn-ghost" data-act="decline" data-id="${r.id}">Decline</button></div>` : ''}
-            ${r.status === 'escrow' ? `<div class="form-hint">Funds are held — released when ${esc(r.buyer)} confirms delivery.</div>` : ''}
+            ${r.status === 'escrow' ? `<div class="form-hint">Funds are held — released when ${esc(r.buyer)} confirms delivery.</div>` : ''}`}
           </div>`).join('') : '<div class="form-hint">No requests yet.</div>'}
       </div>`;
   }).join('') : `<div class="empty">You haven't listed a trip. <span class="link" onclick="showView('list-trip')">List one →</span></div>`;
@@ -377,13 +400,27 @@ function renderDashboard(){
 function handleDashAction(act, id){
   const req = reqById(id);
   if(!req) return;
+  if(act === 'dispute'){ state.disputeId = id; showView('dispute'); return; }
+  if(req.chain){
+    chainAction(req, act).then(ok => ok && toast(CHAIN_DONE[act] || 'Done — the contract is updated'));
+    return;
+  }
   if(act === 'cancel'){ setStatus(req, 'cancelled', 'Request cancelled by buyer'); toast('Request cancelled'); }
   if(act === 'confirm'){ setStatus(req, 'completed', `Buyer confirmed delivery — €${req.price} released`); toast(`Delivery confirmed — €${req.price} released to the traveler`); }
   if(act === 'accept'){ setStatus(req, 'escrow', `Accepted — €${req.price} locked in escrow`); toast(`Accepted — €${req.price} is now in escrow`); }
   if(act === 'decline'){ setStatus(req, 'declined', 'Declined by traveler'); toast('Request declined'); }
-  if(act === 'dispute'){ state.disputeId = id; showView('dispute'); return; }
   renderAll();
 }
+
+const CHAIN_DONE = {
+  cancel:'Cancelled — the contract refunded you',
+  decline:'Declined — the buyer was refunded by the contract',
+  accept:'Accepted — the funds stay locked until delivery',
+  deliver:'Marked delivered — the buyer has 7 days to confirm or dispute',
+  confirm:'Confirmed — the contract paid the traveler',
+  'claim-pay':'Payment claimed — check your wallet',
+  'claim-refund':'Refund claimed — check your wallet',
+};
 
 // ---------- Dispute ----------
 function renderDispute(){
@@ -392,30 +429,37 @@ function renderDispute(){
   const s = STATUS[req.status];
   $('dispute-title').textContent = `Dispute — ${req.item}`;
   $('dispute-status').className = `status ${s.cls}`;
-  $('dispute-status').textContent = req.status === 'disputed' ? 'Under review' : s.label;
+  $('dispute-status').textContent = req.status === 'disputed' ? (req.chain ? 'Funds frozen' : 'Under review') : s.label;
 
   const items = req.history.map(h => ({label:h.label, sub:fmtStamp(h.at), cls:'done'}));
   if(req.status === 'escrow'){
-    items.push({label:'Dispute', sub:'Add your details below — funds stay locked until resolved', cls:'active'});
+    items.push({label:'Dispute', sub:req.chain ? 'Opening one freezes the funds in the contract' : 'Add your details below — funds stay locked until resolved', cls:'active'});
     items.push({label:'Resolution', sub:'Funds released to traveler, or refunded to buyer', cls:''});
   } else if(req.status === 'disputed'){
     items[items.length - 1].cls = 'active';
-    items.push({label:'Resolution', sub:'Typically within 2 business days', cls:''});
+    items.push({label:'Resolution', sub:req.chain ? 'When you both propose the same split, or 50/50 after 30 days' : 'Typically within 2 business days', cls:''});
   }
   $('dispute-timeline').innerHTML = items.map(i =>
     `<div class="tl-item"><div class="tl-dot ${i.cls}"></div><div class="tl-body"><b>${esc(i.label)}</b><span>${esc(i.sub)}</span></div></div>`).join('');
 
   $('dispute-form').style.display = req.status === 'escrow' ? 'block' : 'none';
-  $('dispute-resolve').style.display = req.status === 'disputed' ? 'block' : 'none';
+  $('dispute-resolve').style.display = req.status === 'disputed' && !req.chain ? 'block' : 'none';
+  renderChainDispute(req);
 }
 
-function submitDispute(){
+async function submitDispute(){
   const req = reqById(state.disputeId);
   const desc = $('dispute-desc').value.trim();
   if(!req) return;
   if(desc.length < 10){ $('dispute-error').textContent = 'Describe the issue in a sentence or two.'; return; }
   $('dispute-error').textContent = '';
   req.dispute = {reason:$('dispute-reason').value, desc};
+  if(req.chain){
+    if(!await chainAction(req, 'dispute')) return;
+    $('dispute-desc').value = '';
+    toast('Dispute opened — the funds are frozen until you agree on a split');
+    return;
+  }
   setStatus(req, 'disputed', `Dispute raised — ${req.dispute.reason.toLowerCase()}`);
   $('dispute-desc').value = '';
   toast('Dispute submitted — funds stay locked while it is reviewed');
@@ -433,6 +477,7 @@ function resolveDispute(outcome){
 
 // ---------- Boot ----------
 function renderAll(){
+  renderWallet();
   renderHeroPass();
   renderNotifDot();
   renderTrips();
@@ -476,3 +521,4 @@ $('view-dashboard').addEventListener('click', e => { const b = e.target.closest(
 
 renderAll();
 scheduleSeedAccepts();
+initChain();

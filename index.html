@@ -41,6 +41,10 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span class="dot" id="notif-dot"></span>
       </button>
+      <button class="wallet-btn" id="wallet-btn" onclick="chainReady() ? showView('dashboard') : connectWallet()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a1 1 0 0 1 1 1v3"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M21 12h-4a2 2 0 0 0 0 4h4z"/></svg>
+        <span id="wallet-label">Connect wallet</span>
+      </button>
       <span class="avatar-lg" role="img" aria-label="Your profile">Y</span>
     </div>
   </div>
@@ -211,6 +215,7 @@
           <textarea rows="3" id="lt-notes" placeholder="e.g. No oversized items, arriving with one carry-on only"></textarea>
         </div>
         <div class="form-error" id="lt-error"></div>
+        <p class="form-hint" id="lt-wallet"></p>
         <button class="btn btn-primary btn-block" onclick="submitTrip()">Publish trip</button>
         <div class="confirm-banner" id="trip-confirm">✓ Trip published — buyers can now send you requests.</div>
       </div>
@@ -275,6 +280,7 @@
               </div>
 
               <div class="form-error" id="req-error"></div>
+              <p class="form-hint pay-note" id="pay-note"></p>
               <button class="btn btn-primary btn-block" onclick="sendRequest()">Send request</button>
             </div>
           </div>
@@ -292,9 +298,9 @@
           </div>
           <div class="side-card sand-card">
             <h4>How you pay</h4>
-            <div class="side-row"><span>Pay by</span><b>Card</b></div>
-            <div class="side-row"><span>Held in</span><b>Escrow</b></div>
-            <div class="side-row"><span>Released</span><b>When you confirm delivery</b></div>
+            <div class="side-row"><span>Pay by</span><b id="pay-by">Card (demo)</b></div>
+            <div class="side-row"><span>Held in</span><b id="pay-held">Escrow</b></div>
+            <div class="side-row"><span>Released</span><b id="pay-release">When you confirm delivery</b></div>
           </div>
         </aside>
       </div>
@@ -317,6 +323,8 @@
         <div class="stat sand"><span>Awaiting a traveler</span><b id="dash-waiting">€0</b></div>
         <div class="stat mint"><span>Earned carrying</span><b id="dash-earned">€0</b></div>
       </div>
+
+      <div class="wallet-panel" id="wallet-panel"></div>
 
       <div class="dash-cols">
         <div>
@@ -361,6 +369,26 @@
         <button class="btn btn-primary btn-block" onclick="submitDispute()">Submit dispute</button>
       </div>
 
+      <div class="card form-card narrow" id="dispute-chain">
+        <h2 class="sub-title">Settle it between you</h2>
+        <p class="form-hint">Nobody at Roamly can move these funds. Each side proposes how much goes back to the buyer — when both proposals match, the contract pays out instantly. <span id="dc-role"></span></p>
+        <div class="split-rows">
+          <div class="side-row"><span>Locked in contract</span><b id="dc-amount"></b></div>
+          <div class="side-row"><span>Buyer's offer</span><b id="dc-buyer"></b></div>
+          <div class="side-row"><span>Traveler's offer</span><b id="dc-traveler"></b></div>
+        </div>
+        <div class="form-group">
+          <label for="dc-refund">Refund to buyer (<span id="dc-unit">USDT</span>)</label>
+          <input type="number" id="dc-refund" min="0" step="0.01" placeholder="0">
+        </div>
+        <div class="dash-actions">
+          <button class="btn btn-sm btn-primary" onclick="proposeSplitUI()">Propose this split</button>
+          <button class="btn btn-sm btn-outline" id="dc-match" onclick="proposeSplitUI(this.dataset.offer)">Accept their offer</button>
+          <button class="btn btn-sm btn-sand" id="dc-settle" onclick="settleUI()">Split 50/50 now</button>
+        </div>
+        <p class="form-hint" id="dc-deadline"></p>
+      </div>
+
       <div class="narrow" id="dispute-resolve">
         <div class="notice" style="display:block;">Funds stay locked while support reviews this. In the prototype you can play the reviewer:</div>
         <div class="dash-actions">
@@ -379,11 +407,15 @@
       <div class="footer-mark">Roamly</div>
       <div>More than a marketplace… a travel community.</div>
     </div>
-    <div class="footer-note">Prototype for planning purposes — no real payments, accounts or customs data are processed. · <button class="text-link light" onclick="resetDemo()">Reset demo data</button></div>
+    <div class="footer-note">Prototype — on-chain payments run on BNB Smart Chain Testnet with test tokens only; no real money, accounts or customs data are processed. · <button class="text-link light" onclick="resetDemo()">Reset demo data</button></div>
   </div>
 </footer>
 <div class="toast" id="toast" role="status"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="deployments.js"></script>
+<script src="deployments.local.js"></script>
+<script src="chain.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

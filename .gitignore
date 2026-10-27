@@ -2,3 +2,9 @@
 .vscode/
 .claude/
 node_modules/
+.env
+artifacts/
+cache/
+coverage/
+typechain-types/
+deployments.local.js

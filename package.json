@@ -1,0 +1,19 @@
+{
+  "name": "roamly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Roamly — peer-to-peer traveler marketplace with on-chain escrow",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "chain": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network bscTestnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.1.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.29.1"
+  }
+}

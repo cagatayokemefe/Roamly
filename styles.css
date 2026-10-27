@@ -314,3 +314,24 @@ main{min-height:60vh;}
 @media (prefers-reduced-motion:reduce){
   *{animation:none !important;transition:none !important;}
 }
+
+/* ---------- Wallet & on-chain escrow ---------- */
+.wallet-btn{display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 16px;flex:none;border-radius:999px;border:1px solid var(--green);background:var(--white);color:var(--green);font:inherit;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.wallet-btn:hover{background:var(--mint);}
+.wallet-btn.connected{background:var(--green);color:var(--white);}
+.wallet-btn.warn{border-color:var(--amber);color:#7A4A00;background:#FCEFD6;}
+.wallet-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin:0 0 28px;padding:18px 22px;border-radius:20px;background:var(--white);border:1px solid var(--line);}
+.wallet-panel b{display:block;font-size:16px;}
+.wallet-panel span{display:block;font-size:14px;color:var(--muted);margin-top:2px;}
+.chain-meta{margin:6px 0 0;font-size:13px;color:var(--leaf);font-weight:600;}
+.pay-note{margin:0 0 12px;}
+.split-rows{display:flex;flex-direction:column;gap:10px;margin:16px 0 20px;}
+#dispute-chain{display:none;}
+#dispute-chain .sub-title{margin-top:0;}
+body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
+@media (max-width:720px){
+  .avatar-lg{display:none;}
+  .search{min-width:0;}
+  .wallet-btn{width:46px;padding:0;justify-content:center;}
+  .wallet-btn #wallet-label{display:none;}
+}
