@@ -16,6 +16,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///     Accepted:  buyer confirmDelivery                                  → traveler paid
 ///                deliverBy passes without delivery                      → buyer can claim refund
 ///     Delivered: buyer confirmDelivery, or 7 days pass                  → traveler paid
+///     Accepted/Delivered: traveler enters the buyer's delivery code     → traveler paid at once
+///       (the buyer hands over the code after checking the item; only its hash is stored)
 ///     Accepted/Delivered (within 7 days): buyer openDispute ─▶ Disputed
 ///     Disputed:  both sides propose the same split                      → paid out as agreed
 ///                no agreement within 30 days                            → anyone can settle 50/50
@@ -51,6 +53,7 @@ contract RoamlyEscrow is ReentrancyGuard {
         bool accepted;       // traveler committed to it — only these deals can be rated
         uint128 buyerDeposit;    // locked with the payment
         uint128 travelerDeposit; // locked on accept (same amount); 0 until then
+        bytes32 codeHash;        // keccak256 of the buyer's secret delivery code; 0 = no code
     }
 
     struct Review {
@@ -77,6 +80,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref);
     event DealAccepted(uint256 indexed id);
     event DealDelivered(uint256 indexed id);
+    event CodeConfirmed(uint256 indexed id);
     event DealReleased(uint256 indexed id, uint256 toTraveler, uint256 fee);
     event DealRefunded(uint256 indexed id, uint256 toBuyer);
     event DisputeOpened(uint256 indexed id);
@@ -92,6 +96,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     error TooEarly();
     error TooLate();
     error AlreadyRated();
+    error WrongCode();
 
     constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_, uint16 depositBps_) {
         if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS || depositBps_ > MAX_DEPOSIT_BPS) revert InvalidParams();
@@ -106,7 +111,9 @@ contract RoamlyEscrow is ReentrancyGuard {
     /// @notice Lock `amount` tokens plus the buyer deposit for `traveler`.
     ///         Needs a prior token approve() of amount + depositFor(amount).
     /// @param ref Off-chain request id, so the app can link the deal to its listing.
-    function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref) external nonReentrant returns (uint256 id) {
+    /// @param codeHash keccak256 of a secret delivery code the buyer keeps (0 for none). The code must be
+    ///        long and random (the app uses 80 bits): the hash is public, so a short code could be guessed.
+    function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref, bytes32 codeHash) external nonReentrant returns (uint256 id) {
         if (traveler == address(0) || traveler == msg.sender || amount == 0 || deliverBy <= block.timestamp) revert InvalidParams();
         id = ++dealCount;
         Deal storage d = _deals[id];
@@ -116,6 +123,7 @@ contract RoamlyEscrow is ReentrancyGuard {
         d.deliverBy = deliverBy;
         d.status = Status.Funded;
         d.buyerDeposit = uint128(depositFor(amount));
+        d.codeHash = codeHash;
         token.safeTransferFrom(msg.sender, address(this), uint256(amount) + d.buyerDeposit);
         emit DealCreated(id, msg.sender, traveler, amount, deliverBy, ref);
     }
@@ -174,7 +182,18 @@ contract RoamlyEscrow is ReentrancyGuard {
         _refund(id, d);
     }
 
-    /// @notice Starts the buyer's 7-day window to confirm or dispute.
+    /// @notice The buyer handed over their delivery code: that's their confirmation, so pay out now.
+    function confirmWithCode(uint256 id, string calldata code) external nonReentrant {
+        Deal storage d = _deals[id];
+        if (msg.sender != d.traveler) revert NotTraveler();
+        if (d.status != Status.Accepted && d.status != Status.Delivered) revert WrongStatus(d.status);
+        if (d.codeHash == bytes32(0) || keccak256(bytes(code)) != d.codeHash) revert WrongCode();
+        emit CodeConfirmed(id);
+        _release(id, d);
+    }
+
+    /// @notice Delivery without the code (e.g. the buyer wasn't there): starts the buyer's
+    ///         7-day window to confirm or dispute.
     function markDelivered(uint256 id) external {
         Deal storage d = _deals[id];
         if (msg.sender != d.traveler) revert NotTraveler();

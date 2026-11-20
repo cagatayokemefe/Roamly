@@ -6,6 +6,8 @@ const DAY = 24 * 60 * 60;
 const S = { None:0, Funded:1, Accepted:2, Delivered:3, Disputed:4, Released:5, Refunded:6, Split:7 };
 const usdt = n => ethers.parseUnits(String(n), 18);
 const REF = ethers.encodeBytes32String('r-demo');
+const CODE = 'K7QM2XPA9RTD4FHN';          // the buyer's secret delivery code
+const CODE_HASH = ethers.id(CODE);         // only this hash goes on-chain
 
 async function deploy(){
   const [deployer, buyer, traveler, feeWallet, stranger] = await ethers.getSigners();
@@ -22,7 +24,7 @@ async function deploy(){
 async function funded(){
   const f = await deploy();
   const deliverBy = (await time.latest()) + 14 * DAY;
-  await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(100), deliverBy, REF);
+  await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(100), deliverBy, REF, CODE_HASH);
   return { ...f, id: 1n, deliverBy };
 }
 async function accepted(){
@@ -78,17 +80,17 @@ describe('RoamlyEscrow', () => {
     it('emits DealCreated with the app reference', async () => {
       const f = await loadFixture(deploy);
       const by = (await time.latest()) + DAY;
-      await expect(f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(5), by, REF))
+      await expect(f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(5), by, REF, CODE_HASH))
         .to.emit(f.escrow, 'DealCreated').withArgs(1, f.buyer.address, f.traveler.address, usdt(5), by, REF);
     });
     it('rejects bad input', async () => {
       const f = await loadFixture(deploy);
       const by = (await time.latest()) + DAY;
       const c = f.escrow.connect(f.buyer);
-      await expect(c.createDeal(f.buyer, usdt(1), by, REF)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
-      await expect(c.createDeal(ethers.ZeroAddress, usdt(1), by, REF)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
-      await expect(c.createDeal(f.traveler, 0, by, REF)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
-      await expect(c.createDeal(f.traveler, usdt(1), (await time.latest()) - 1, REF)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(c.createDeal(f.buyer, usdt(1), by, REF, CODE_HASH)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(c.createDeal(ethers.ZeroAddress, usdt(1), by, REF, CODE_HASH)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(c.createDeal(f.traveler, 0, by, REF, CODE_HASH)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(c.createDeal(f.traveler, usdt(1), (await time.latest()) - 1, REF, CODE_HASH)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
     });
   });
 
@@ -229,6 +231,41 @@ describe('RoamlyEscrow', () => {
     });
   });
 
+  describe('delivery code', () => {
+    it('traveler entering the right code pays out at once (no 7-day wait)', async () => {
+      const f = await loadFixture(accepted);
+      const tx = f.escrow.connect(f.traveler).confirmWithCode(f.id, CODE);
+      await expect(tx).to.changeTokenBalances(f.token, [f.traveler, f.buyer, f.feeWallet], [usdt(108), usdt(10), usdt(2)]);
+      await expect(tx).to.emit(f.escrow, 'CodeConfirmed').withArgs(f.id);
+      expect(await status(f)).to.equal(S.Released);
+    });
+    it('also works after the item was marked delivered', async () => {
+      const f = await loadFixture(delivered);
+      await expect(f.escrow.connect(f.traveler).confirmWithCode(f.id, CODE)).to.changeTokenBalance(f.token, f.traveler, usdt(108));
+    });
+    it('rejects a wrong code', async () => {
+      const f = await loadFixture(accepted);
+      await expect(f.escrow.connect(f.traveler).confirmWithCode(f.id, 'K7QM2XPA9RTD4FHX')).to.be.revertedWithCustomError(f.escrow, 'WrongCode');
+      await expect(f.escrow.connect(f.traveler).confirmWithCode(f.id, '')).to.be.revertedWithCustomError(f.escrow, 'WrongCode');
+    });
+    it('only the traveler can use it', async () => {
+      const f = await loadFixture(accepted);
+      await expect(f.escrow.connect(f.stranger).confirmWithCode(f.id, CODE)).to.be.revertedWithCustomError(f.escrow, 'NotTraveler');
+    });
+    it('cannot be used before acceptance or during a dispute', async () => {
+      const f = await loadFixture(funded);
+      await expect(f.escrow.connect(f.traveler).confirmWithCode(f.id, CODE)).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
+      const g = await loadFixture(disputed);
+      await expect(g.escrow.connect(g.traveler).confirmWithCode(g.id, CODE)).to.be.revertedWithCustomError(g.escrow, 'WrongStatus');
+    });
+    it('a deal created without a code cannot be confirmed with one', async () => {
+      const f = await loadFixture(deploy);
+      await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(10), (await time.latest()) + DAY, REF, ethers.ZeroHash);
+      await f.escrow.connect(f.traveler).accept(1);
+      await expect(f.escrow.connect(f.traveler).confirmWithCode(1, '')).to.be.revertedWithCustomError(f.escrow, 'WrongCode');
+    });
+  });
+
   describe('ratings', () => {
     async function released(){
       const f = await delivered();
@@ -288,8 +325,8 @@ describe('RoamlyEscrow', () => {
   it('keeps separate deals separate', async () => {
     const f = await loadFixture(deploy);
     const by = (await time.latest()) + DAY;
-    await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(10), by, REF);
-    await f.escrow.connect(f.buyer).createDeal(f.stranger, usdt(20), by, REF);
+    await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(10), by, REF, CODE_HASH);
+    await f.escrow.connect(f.buyer).createDeal(f.stranger, usdt(20), by, REF, CODE_HASH);
     await f.escrow.connect(f.buyer).cancel(2);
     expect(await f.token.balanceOf(f.escrow)).to.equal(usdt(11)); // deal 1: 10 + 1 deposit
     expect((await f.escrow.getDeal(1)).status).to.equal(S.Funded);
@@ -301,7 +338,7 @@ describe('RoamlyEscrow', () => {
     const escrow = await ethers.deployContract('RoamlyEscrow', [token, feeWallet.address, 200, 0]);
     await token.connect(buyer).faucet();
     await token.connect(buyer).approve(escrow, ethers.MaxUint256);
-    await escrow.connect(buyer).createDeal(traveler, usdt(100), (await time.latest()) + DAY, REF);
+    await escrow.connect(buyer).createDeal(traveler, usdt(100), (await time.latest()) + DAY, REF, CODE_HASH);
     await escrow.connect(traveler).accept(1); // no deposit, so no approval needed
     await expect(escrow.connect(buyer).confirmDelivery(1)).to.changeTokenBalance(token, traveler, usdt(98));
   });

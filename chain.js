@@ -44,7 +44,8 @@ const NETWORKS = {
           nativeCurrency:{name:'ETH', symbol:'ETH', decimals:18}, blockExplorerUrls:null},
 };
 const ESCROW_ABI = [
-  'function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref) returns (uint256)',
+  'function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref, bytes32 codeHash) returns (uint256)',
+  'function confirmWithCode(uint256 id, string code)',
   'function cancel(uint256 id)',
   'function accept(uint256 id)',
   'function decline(uint256 id)',
@@ -55,14 +56,14 @@ const ESCROW_ABI = [
   'function claimRefund(uint256 id)',
   'function proposeSplit(uint256 id, uint128 toBuyer)',
   'function settleStalemate(uint256 id)',
-  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted, uint128 buyerDeposit, uint128 travelerDeposit))',
+  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted, uint128 buyerDeposit, uint128 travelerDeposit, bytes32 codeHash))',
   'function depositBps() view returns (uint16)',
   'function rate(uint256 id, uint8 stars, string comment)',
   'function getReviews(uint256 id) view returns (tuple(uint8 stars, string comment) byBuyer, tuple(uint8 stars, string comment) byTraveler)',
   'function reputation(address) view returns (uint64 count, uint64 totalStars)',
   'event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref)',
   'error InvalidParams()', 'error NotBuyer()', 'error NotTraveler()', 'error NotParty()',
-  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()',
+  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()', 'error WrongCode()',
 ];
 const TOKEN_ABI = [
   'function balanceOf(address) view returns (uint256)',
@@ -85,6 +86,7 @@ const CHAIN_ERRORS = {
   TooLate:'Too late — that window has closed.',
   InvalidParams:'The contract rejected these details.',
   AlreadyRated:'You’ve already rated this deal — ratings can’t be changed.',
+  WrongCode:'That code doesn’t match — check it with the buyer.',
 };
 const CHAIN_ACTIONS = {
   cancel:        {fn:'cancel',          pending:'Cancelling and refunding'},
@@ -98,6 +100,7 @@ const CHAIN_ACTIONS = {
   propose:       {fn:'proposeSplit',    pending:'Sending your offer'},
   settle:        {fn:'settleStalemate', pending:'Settling 50/50'},
   rate:          {fn:'rate',            pending:'Saving your rating on-chain'},
+  code:          {fn:'confirmWithCode', pending:'Checking the code and releasing payment'},
 };
 
 const FINAL_DEALS = ['Released','Refunded','Split'];
@@ -251,13 +254,14 @@ async function payOnChain(req, trip){
   const deposit = depositFor(amount);
   if(!await ensureFunds(amount + deposit)) return null;
   const deliverBy = Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400;
+  const code = newDeliveryCode();
   const receipt = await sendTx(`Locking ${fmtUnits(amount)} + ${fmtUnits(deposit)} deposit in escrow`,
-    () => wallet.escrow.createDeal(trip.wallet, amount, deliverBy, ethers.encodeBytes32String(req.id)));
+    () => wallet.escrow.createDeal(trip.wallet, amount, deliverBy, ethers.encodeBytes32String(req.id), ethers.id(code)));
   if(!receipt) return null;
   const created = receipt.logs.map(l => { try { return wallet.escrow.interface.parseLog(l); } catch { return null; } })
     .find(l => l?.name === 'DealCreated');
   refreshBalance();
-  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), deposit:deposit.toString(), rate:fx.rate, rateDate:fx.date, decimals:wallet.decimals,
+  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), deposit:deposit.toString(), code, rate:fx.rate, rateDate:fx.date, decimals:wallet.decimals,
           symbol:wallet.symbol, buyer:wallet.account, traveler:trip.wallet, txs:[receipt.hash]};
 }
 
@@ -290,7 +294,7 @@ function chainHistoryLabel(req, s){
     Accepted:`Accepted — traveler locked a ${fmtDeal(req, d.travelerDeposit || 0)} deposit too`,
     Delivered:'Traveler marked it delivered — 7 days to confirm or dispute',
     Disputed:`Dispute opened${req.dispute ? ` — ${req.dispute.reason.toLowerCase()}` : ''} — funds frozen in the contract`,
-    Released:`Released — ${net} to traveler (2% fee), deposits returned`,
+    Released:`${req.chain.intent === 'code' ? 'Delivery code confirmed — ' : 'Released — '}${net} to traveler (2% fee), deposits returned`,
     Refunded:`Refunded — ${refunded} back to buyer${BigInt(d.travelerDeposit || 0) > 0n && d.status === 'Refunded' && req.chain.intent === 'claim-refund' ? ', including the traveler’s deposit' : ''}`,
     Split:'Settled by split — paid out by the contract',
   }[s];
@@ -310,7 +314,7 @@ async function syncDeal(req){
   const prev = req.deal?.status;
   req.deal = {status:s, deliverBy:Number(d.deliverBy), deliveredAt:Number(d.deliveredAt), disputedAt:Number(d.disputedAt),
               buyerOffer:d.buyerOffer.toString(), travelerOffer:d.travelerOffer.toString(), accepted:d.accepted,
-              buyerDeposit:d.buyerDeposit.toString(), travelerDeposit:d.travelerDeposit.toString()};
+              buyerDeposit:d.buyerDeposit.toString(), travelerDeposit:d.travelerDeposit.toString(), codeHash:d.codeHash};
   let reviewsChanged = false;
   if(d.accepted && FINAL_DEALS.includes(s)){
     const [byBuyer, byTraveler] = await wallet.escrow.getReviews(req.chain.dealId);
@@ -426,6 +430,100 @@ async function submitRating(){
   }
 }
 
+// ---------- Delivery code ----------
+// 16 symbols from a 32-letter alphabet = 80 random bits. Only its hash goes on-chain, and the hash is
+// public, so the code must be long enough that nobody can guess it from the hash.
+const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // no 0/O/1/I, so it's easy to read out
+const QR_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+const SCAN_LIB = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+
+function newDeliveryCode(){
+  return [...crypto.getRandomValues(new Uint8Array(16))].map(b => CODE_ALPHABET[b & 31]).join('');
+}
+const normalizeCode = s => String(s).toUpperCase().replace(/[^0-9A-Z]/g, '');
+const formatCode = c => c.match(/.{1,4}/g).join('-');
+const codePayload = req => `roamly:${req.chain.dealId}:${req.chain.code}`;
+
+const loadedScripts = {};
+function loadScript(src){
+  return loadedScripts[src] ||= new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => { delete loadedScripts[src]; reject(new Error('Couldn’t load ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+
+// Buyer: show the code as a QR and as text
+async function openCodeDialog(req){
+  if(!req.chain?.code){ toast('This browser doesn’t have the delivery code for this request.'); return; }
+  $('code-text').textContent = formatCode(req.chain.code);
+  $('code-item').textContent = req.item;
+  const box = $('code-qr');
+  box.innerHTML = '';
+  $('code-dialog').showModal();
+  try {
+    await loadScript(QR_LIB);
+    new QRCode(box, {text:codePayload(req), width:220, height:220, colorDark:'#1B1F1A', colorLight:'#FFFFFF', correctLevel:QRCode.CorrectLevel.M});
+  } catch {
+    box.innerHTML = '<p class="form-hint">Couldn’t draw the QR code — read out the code below instead.</p>';
+  }
+}
+
+// Traveler: scan the buyer's QR or type the code
+let codeTarget = null, scanner = null;
+function openEntryDialog(req){
+  codeTarget = req.id;
+  $('entry-item').textContent = req.item;
+  $('code-input').value = '';
+  $('entry-error').textContent = '';
+  $('entry-dialog').showModal();
+}
+async function startScan(){
+  const box = $('scan-box');
+  $('entry-error').textContent = '';
+  try {
+    await loadScript(SCAN_LIB);
+    box.hidden = false;
+    scanner = new Html5Qrcode('scan-box');
+    await scanner.start({facingMode:'environment'}, {fps:10, qrbox:220}, text => { stopScan(); useScannedCode(text); });
+  } catch {
+    stopScan();
+    $('entry-error').textContent = 'Couldn’t open the camera — type the code instead.';
+  }
+}
+function stopScan(){
+  const s = scanner;
+  scanner = null;
+  $('scan-box').hidden = true;
+  if(!s) return;
+  // stop() throws synchronously if the camera never started, so wrap it in a promise
+  Promise.resolve().then(() => s.isScanning ? s.stop() : null).catch(() => {}).finally(() => { try { s.clear(); } catch {} });
+}
+function useScannedCode(text){
+  const [tag, dealId, code] = String(text).split(':');
+  const req = reqById(codeTarget);
+  if(tag !== 'roamly' || !code){ $('entry-error').textContent = 'That isn’t a Roamly delivery code.'; return; }
+  if(dealId !== req?.chain.dealId){ $('entry-error').textContent = 'That code is for a different request.'; return; }
+  $('code-input').value = formatCode(normalizeCode(code));
+  submitCode();
+}
+function closeEntryDialog(){
+  stopScan();
+  $('entry-dialog').close();
+}
+async function submitCode(){
+  const req = reqById(codeTarget);
+  const code = normalizeCode($('code-input').value);
+  if(!req) return;
+  if(code.length !== 16){ $('entry-error').textContent = 'The code has 16 letters and numbers.'; return; }
+  // check against the on-chain hash first, so a typo doesn't cost a transaction
+  if(req.deal?.codeHash && ethers.id(code) !== req.deal.codeHash){ $('entry-error').textContent = CHAIN_ERRORS.WrongCode; return; }
+  closeEntryDialog();
+  if(await chainAction(req, 'code', code)) toast('Code accepted — the contract paid you');
+}
+
 // ---------- Rendering ----------
 function renderWallet(){
   const btn = $('wallet-btn');
@@ -472,9 +570,12 @@ function chainHint(req, side){
   if(d.status === 'Funded') return side === 'buyer'
     ? `Funds are locked in the contract. If ${esc(tripById(req.tripId)?.traveler || 'the traveler')} doesn't accept, cancel any time for a full refund.`
     : `The buyer’s money is already locked in the contract. Accepting locks your refundable ${esc(fmtDeal(req, req.chain.deposit || 0))} deposit — you only lose it if you miss the delivery deadline.`;
-  if(d.status === 'Accepted') return now > d.deliverBy
-    ? 'The delivery deadline has passed — the buyer can reclaim the funds plus the traveler’s deposit.'
-    : `Deliver by ${fmtSecDay(d.deliverBy)}, or the buyer can reclaim the funds plus the traveler’s deposit.`;
+  if(d.status === 'Accepted'){
+    if(now > d.deliverBy) return 'The delivery deadline has passed — the buyer can reclaim the funds plus the traveler’s deposit.';
+    return side === 'buyer' && req.chain.code
+      ? `When you get the item, check it, then show your delivery code — that releases the payment. If it doesn't arrive by ${fmtSecDay(d.deliverBy)}, you can reclaim everything plus the traveler's deposit.`
+      : `Deliver by ${fmtSecDay(d.deliverBy)}, or the buyer can reclaim the funds plus the traveler’s deposit. At handover, enter the buyer's delivery code to get paid at once.`;
+  }
   if(d.status === 'Delivered'){
     const due = d.deliveredAt + CONFIRM_WINDOW;
     return now >= due
@@ -492,13 +593,16 @@ function chainButtons(req, side){
   const out = [];
   if(side === 'buyer'){
     if(d.status === 'Funded') out.push(b('cancel', 'Cancel & refund'));
+    if(req.chain.code && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('show-code', 'Show delivery code', 'btn-primary'));
     if(d.status === 'Accepted' || (d.status === 'Delivered' && now < d.deliveredAt + CONFIRM_WINDOW))
-      out.push(b('confirm', 'Confirm received', 'btn-primary'), b('dispute', 'Raise a dispute'));
+      out.push(b('confirm', 'Confirm received', req.chain.code ? 'btn-outline' : 'btn-primary'), b('dispute', 'Raise a dispute'));
     if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('confirm', 'Confirm received', 'btn-primary'));
     if((d.status === 'Funded' || d.status === 'Accepted') && now > d.deliverBy) out.push(b('claim-refund', 'Claim refund', 'btn-outline'));
   } else {
     if(d.status === 'Funded') out.push(b('accept', 'Accept', 'btn-primary'), b('decline', 'Decline'));
-    if(d.status === 'Accepted') out.push(b('deliver', 'Mark delivered', 'btn-primary'));
+    const hasCode = d.codeHash && d.codeHash !== ethers.ZeroHash;
+    if(hasCode && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('enter-code', 'Enter delivery code', 'btn-primary'));
+    if(d.status === 'Accepted') out.push(b('deliver', hasCode ? 'Delivered without code' : 'Mark delivered', hasCode ? 'btn-ghost' : 'btn-primary'));
     if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('claim-pay', 'Claim payment', 'btn-primary'));
   }
   if(d.status === 'Disputed') out.push(b('dispute', 'View dispute'));

@@ -413,6 +413,35 @@
 </footer>
 <div class="toast" id="toast" role="status"></div>
 
+<dialog class="rate-dialog" id="code-dialog" aria-labelledby="code-title">
+  <h2 class="sub-title" id="code-title">Your delivery code</h2>
+  <p class="form-hint"><span id="code-item"></span> · Check the item first. Showing this code tells the contract you received it, and <b>pays the traveler straight away</b>.</p>
+  <div class="code-qr" id="code-qr"></div>
+  <div class="code-text" id="code-text"></div>
+  <p class="form-hint">Only stored in this browser. If you lose it, you can still use “Confirm received”.</p>
+  <div class="dash-actions">
+    <button type="button" class="btn btn-sm btn-primary" onclick="$('code-dialog').close()">Done</button>
+  </div>
+</dialog>
+
+<dialog class="rate-dialog" id="entry-dialog" aria-labelledby="entry-title" onclose="stopScan()">
+  <form method="dialog" onsubmit="event.preventDefault(); submitCode();">
+    <h2 class="sub-title" id="entry-title">Enter delivery code</h2>
+    <p class="form-hint"><span id="entry-item"></span> · Ask the buyer for their code once they've checked the item. The right code pays you at once.</p>
+    <div class="scan-box" id="scan-box" hidden></div>
+    <button type="button" class="btn btn-sm btn-outline btn-block" onclick="startScan()">Scan the buyer's QR code</button>
+    <div class="form-group">
+      <label for="code-input">Or type it</label>
+      <input type="text" id="code-input" class="code-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
+    </div>
+    <div class="form-error" id="entry-error"></div>
+    <div class="dash-actions">
+      <button type="submit" class="btn btn-sm btn-primary">Confirm delivery</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="closeEntryDialog()">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="rate-dialog" id="rate-dialog" aria-labelledby="rate-title">
   <form method="dialog" onsubmit="event.preventDefault(); submitRating();">
     <h2 class="sub-title" id="rate-title">Rate the traveler</h2>

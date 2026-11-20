@@ -28,6 +28,7 @@ App data is saved in the browser's `localStorage`. Use **Reset demo data** in th
 | Traveler accepts | Traveler locks the same deposit |
 | Traveler hasn't accepted yet | Buyer can cancel, or traveler can decline → full refund |
 | Buyer confirms delivery | Traveler is paid, minus the 2% fee; both deposits are returned |
+| Traveler enters the buyer's delivery code at handover | Same as confirming — traveler is paid at once |
 | Traveler marks delivered, buyer stays silent 7 days | Anyone can release the payment to the traveler |
 | Not delivered by trip date + 14 days | Buyer can reclaim the full amount **plus the traveler's deposit** |
 | Buyer opens a dispute (before delivery, or within 7 days after) | Funds freeze; both sides propose how much goes back to the buyer — when the proposals match, it pays out |
@@ -36,6 +37,7 @@ App data is saved in the browser's `localStorage`. Use **Reset demo data** in th
 
 - **Deposits:** 10% from each side, returned in every other case. They make stalling a dispute costly for the buyer and accepting without delivering costly for the traveler. Set at deploy time, capped at 30%.
 - **Fee:** 2%, taken only from what the traveler receives. Refunds and deposits are never charged. It's fixed at deploy time and the contract refuses anything above 5%.
+- **Delivery code:** when paying, the app creates a random 16-character code (80 bits) and only its hash goes into the contract. At handover the buyer checks the item and shows the code as a QR (or reads it out); the traveler scans or types it and the contract pays out straight away. It must be long because the hash is public. The code is kept only in the buyer's browser; "Confirm received" and the 7-day release still work without it.
 - **Ratings:** once an accepted deal is paid out, refunded or split, each side can rate the other once — 1–5 stars and up to 140 characters. Requests that were never accepted can't be rated.
 - **Currency:** USDT for now. The token is a deploy setting (`TOKEN_ADDRESS`), so it can be swapped without changing the contract.
 - **Exchange rate:** prices are entered in euros and converted to USDT at payment time using the European Central Bank's daily EUR/USD rate (via [Frankfurter](https://frankfurter.dev)), counting 1 USDT as 1 USD. If the rate can't be loaded, the last saved rate is used; with none saved, a 1.08 estimate is shown with a warning. The rate used is stored with each request. The contract itself only sees USDT amounts.

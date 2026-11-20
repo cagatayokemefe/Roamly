@@ -350,3 +350,11 @@ body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 .rate-count{display:block;text-align:right;margin-top:4px;}
 .rate-line{display:block;margin-top:6px;font-weight:600;color:var(--leaf);}
 .rate-line.warn{color:#7A4A00;}
+
+/* ---------- Delivery code ---------- */
+.code-qr{display:flex;justify-content:center;margin:18px 0 12px;}
+.code-qr img,.code-qr canvas{border-radius:12px;}
+.code-text{text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:22px;font-weight:700;letter-spacing:2px;color:var(--green);margin-bottom:12px;word-break:break-all;}
+.code-input{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;text-transform:uppercase;}
+.scan-box{width:100%;margin:12px 0;border-radius:16px;overflow:hidden;}
+#entry-dialog .btn-block{margin:12px 0 4px;}
