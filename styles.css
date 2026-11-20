@@ -348,3 +348,5 @@ body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 .rate-stars button{width:48px;height:48px;border-radius:14px;border:1px solid var(--field);background:var(--cream);font-size:24px;line-height:1;color:var(--field);cursor:pointer;}
 .rate-stars button.on{color:var(--amber);border-color:var(--amber);background:#FCEFD6;}
 .rate-count{display:block;text-align:right;margin-top:4px;}
+.rate-line{display:block;margin-top:6px;font-weight:600;color:var(--leaf);}
+.rate-line.warn{color:#7A4A00;}

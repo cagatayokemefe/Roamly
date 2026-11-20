@@ -38,6 +38,7 @@ App data is saved in the browser's `localStorage`. Use **Reset demo data** in th
 - **Fee:** 2%, taken only from what the traveler receives. Refunds and deposits are never charged. It's fixed at deploy time and the contract refuses anything above 5%.
 - **Ratings:** once an accepted deal is paid out, refunded or split, each side can rate the other once — 1–5 stars and up to 140 characters. Requests that were never accepted can't be rated.
 - **Currency:** USDT for now. The token is a deploy setting (`TOKEN_ADDRESS`), so it can be swapped without changing the contract.
+- **Exchange rate:** prices are entered in euros and converted to USDT at payment time using the European Central Bank's daily EUR/USD rate (via [Frankfurter](https://frankfurter.dev)), counting 1 USDT as 1 USD. If the rate can't be loaded, the last saved rate is used; with none saved, a 1.08 estimate is shown with a warning. The rate used is stored with each request. The contract itself only sees USDT amounts.
 
 ## Run it
 

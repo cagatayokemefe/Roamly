@@ -2,7 +2,40 @@
 // Talks to RoamlyEscrow through the browser wallet (MetaMask). A request on a trip whose
 // traveler linked a wallet is paid into the contract; everything else stays in demo mode.
 
-const EUR_TO_USDT = 1.08; // fixed demo rate — a live app would read a price feed
+// EUR → USD rate from the European Central Bank (via Frankfurter), treating 1 USDT as 1 USD.
+// Falls back to the last saved rate, then to a fixed estimate if none was ever fetched.
+const RATE_URL = 'https://api.frankfurter.dev/v1/latest?from=EUR&to=USD';
+const RATE_KEY = 'roamly-eur-usd';
+const FALLBACK_RATE = 1.08;
+const fx = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RATE_KEY));
+    if(saved?.rate > 0) return {rate:saved.rate, date:saved.date, source:'saved'};
+  } catch {}
+  return {rate:FALLBACK_RATE, date:null, source:'fallback'};
+})();
+
+async function loadRate(){
+  try {
+    const res = await fetch(RATE_URL);
+    const data = await res.json();
+    const rate = data?.rates?.USD;
+    if(!(rate > 0.5 && rate < 2)) throw new Error('Unexpected rate');
+    Object.assign(fx, {rate, date:data.date, source:'live'});
+    try { localStorage.setItem(RATE_KEY, JSON.stringify({rate, date:data.date})); } catch {}
+  } catch {
+    // keep the saved or fallback rate
+  }
+  if(typeof renderAll === 'function') renderAll();
+}
+
+// "1 € = 1.099 USDT · ECB, 20 Nov" — or a warning when no live rate is available
+function rateLabel(){
+  const day = fx.date ? new Date(fx.date + 'T00:00:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
+  if(fx.source === 'live') return `1 € = ${fx.rate} ${wallet.symbol} · ECB rate, ${day}`;
+  if(fx.source === 'saved') return `1 € = ${fx.rate} ${wallet.symbol} · last saved ECB rate, ${day} (live rate unavailable)`;
+  return `1 € ≈ ${fx.rate} ${wallet.symbol} · estimate — the live rate couldn’t be loaded`;
+}
 const DEPLOYMENTS = {...window.ROAMLY_DEPLOYMENTS, ...window.ROAMLY_LOCAL_DEPLOYMENTS};
 const NETWORKS = {
   97: {chainId:'0x61', chainName:'BNB Smart Chain Testnet', rpcUrls:['https://data-seed-prebsc-1-s1.bnbchain.org:8545'],
@@ -85,7 +118,7 @@ function canPayOnChain(trip){
   return chainReady() && !!trip?.wallet && !sameAddr(trip.wallet, wallet.account);
 }
 function eurToUnits(eur){
-  return ethers.parseUnits((Math.round(eur * EUR_TO_USDT * 100) / 100).toFixed(2), wallet.decimals);
+  return ethers.parseUnits((Math.round(eur * fx.rate * 100) / 100).toFixed(2), wallet.decimals);
 }
 // Refundable deposit each side locks — same formula as the contract's depositFor()
 const depositFor = units => BigInt(units) * wallet.depositBps / 10000n;
@@ -224,7 +257,7 @@ async function payOnChain(req, trip){
   const created = receipt.logs.map(l => { try { return wallet.escrow.interface.parseLog(l); } catch { return null; } })
     .find(l => l?.name === 'DealCreated');
   refreshBalance();
-  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), deposit:deposit.toString(), decimals:wallet.decimals,
+  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), deposit:deposit.toString(), rate:fx.rate, rateDate:fx.date, decimals:wallet.decimals,
           symbol:wallet.symbol, buyer:wallet.account, traveler:trip.wallet, txs:[receipt.hash]};
 }
 
@@ -483,9 +516,10 @@ function renderPayMode(trip){
   const price = parseFloat($('price-input').value) || 0;
   if(onChain){
     const units = eurToUnits(price);
-    note.innerHTML = `Pays ${price > 0 ? `<b>${esc(fmtUnits(units))}</b> (€${price} × ${EUR_TO_USDT})` : 'the price in ' + esc(wallet.symbol)} into the escrow contract` +
+    note.innerHTML = `Pays ${price > 0 ? `<b>${esc(fmtUnits(units))}</b> (€${price})` : 'the price in ' + esc(wallet.symbol)} into the escrow contract` +
       (wallet.depositBps > 0n ? `, plus a refundable ${price > 0 ? `<b>${esc(fmtUnits(depositFor(units)))}</b>` : `${wallet.depositBps / 100n}%`} deposit you get back unless a dispute runs out the 30 days. ` : '. ') +
-      `${trip.mine ? 'The traveler' : esc(trip.traveler)} must deliver by ${fmtSecDay(Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400)} or you can reclaim it.`;
+      `${trip.mine ? 'The traveler' : esc(trip.traveler)} must deliver by ${fmtSecDay(Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400)} or you can reclaim it.` +
+      `<span class="rate-line${fx.source === 'live' ? '' : ' warn'}">${esc(rateLabel())}</span>`;
   } else if(trip?.wallet && !chainReady()){
     note.innerHTML = `${esc(trip.traveler)} accepts on-chain payment. <span class="link" onclick="connectWallet()">Connect your wallet</span> to pay through the escrow contract.`;
   } else {
@@ -541,6 +575,8 @@ async function settleUI(){
 
 // Reconnect silently if the site was already authorised, and keep deals in sync
 function initChain(){
+  loadRate();
+  setInterval(loadRate, 60 * 60 * 1000);
   if(!hasEthers || !window.ethereum) return;
   window.ethereum.request({method:'eth_accounts'}).then(([a]) => a && setupWallet(a)).catch(() => {});
   window.ethereum.on?.('accountsChanged', ([a]) => setupWallet(a || null).catch(() => {}));
