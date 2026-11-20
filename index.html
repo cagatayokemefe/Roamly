@@ -20,24 +20,24 @@
 
 <header class="site-header">
   <div class="header-inner">
-    <button class="logo" data-view="home" aria-label="Roamly home">
+    <button class="logo" data-view="home" aria-label="Roamly home" data-i18n-aria="aria.logo">
       <svg width="42" height="42" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 23.5s8.5-7.4 8.5-14a8.5 8.5 0 1 0-17 0c0 6.6 8.5 14 8.5 14z" fill="#1E4D2B"/><g transform="translate(6.4 3.8) scale(0.47)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plane"/></g></svg>
       <span>Roamly</span>
     </button>
     <nav class="tabs" aria-label="Main">
-      <button class="tab active" data-view="home">Home</button>
-      <button class="tab" data-view="browse">Explore trips</button>
-      <button class="tab" data-view="list-trip">List a trip</button>
-      <button class="tab" data-view="detail">Request</button>
-      <button class="tab" data-view="dashboard">Dashboard</button>
+      <button class="tab active" data-view="home" data-i18n="nav.home">Home</button>
+      <button class="tab" data-view="browse" data-i18n="nav.browse">Explore trips</button>
+      <button class="tab" data-view="list-trip" data-i18n="nav.list">List a trip</button>
+      <button class="tab" data-view="detail" data-i18n="nav.request">Request</button>
+      <button class="tab" data-view="dashboard" data-i18n="nav.dashboard">Dashboard</button>
     </nav>
     <div class="header-tools">
       <label class="search">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <span class="sr-only">Search trips</span>
-        <input type="search" id="search" placeholder="Search cities or travelers…">
+        <span class="sr-only" data-i18n="search.label">Search trips</span>
+        <input type="search" id="search" placeholder="Search cities or travelers…" data-i18n-ph="search.ph">
       </label>
-      <button class="icon-btn" aria-label="Notifications" onclick="showView('dashboard')">
+      <button class="icon-btn" aria-label="Notifications" data-i18n-aria="aria.notifications" onclick="showView('dashboard')">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span class="dot" id="notif-dot"></span>
       </button>
@@ -45,7 +45,11 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a1 1 0 0 1 1 1v3"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M21 12h-4a2 2 0 0 0 0 4h4z"/></svg>
         <span id="wallet-label">Connect wallet</span>
       </button>
-      <span class="avatar-lg" role="img" aria-label="Your profile">Y</span>
+      <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria="lang.aria">
+        <button type="button" data-lang="tr" onclick="setLang('tr')">TR</button>
+        <button type="button" data-lang="en" onclick="setLang('en')">EN</button>
+      </div>
+      <span class="avatar-lg" role="img" aria-label="Your profile" data-i18n-aria="aria.profile">Y</span>
     </div>
   </div>
 </header>
@@ -58,15 +62,15 @@
       <div class="hero-copy">
         <span class="pill-tag">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plane"/></svg>
-          Peer-to-peer · Personal luggage · Not for resale
+          <span data-i18n="hero.tag">Peer-to-peer · Personal luggage · Not for resale</span>
         </span>
-        <h1>Bring the <span>World</span><br>Home with You</h1>
-        <p>Someone's already flying to İstanbul. Ask a traveler to carry what you need — every request is checked against Turkey's €430 personal allowance.</p>
+        <h1 data-i18n-html="hero.title">Bring the <span>World</span><br>Home with You</h1>
+        <p data-i18n="hero.text">Someone's already flying to İstanbul. Ask a traveler to carry what you need — every request is checked against Turkey's €430 personal allowance.</p>
         <div class="cta-row">
-          <button class="btn btn-primary" onclick="showView('browse')">Explore trips
+          <button class="btn btn-primary" onclick="showView('browse')"><span data-i18n="hero.explore">Explore trips</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
           </button>
-          <button class="btn btn-outline" onclick="showView('list-trip')">List a trip</button>
+          <button class="btn btn-outline" onclick="showView('list-trip')" data-i18n="hero.list">List a trip</button>
         </div>
       </div>
 
@@ -86,7 +90,7 @@
             <g transform="translate(458 58) rotate(25) scale(1.6)" fill="none" stroke="#1E4D2B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plane"/></g>
           </svg>
         </div>
-        <button class="hero-pass" id="hero-pass" title="Next trip — click to request">
+        <button class="hero-pass" id="hero-pass" title="Next trip — click to request" data-i18n-title="hero.passTitle">
           <span class="hero-pass-icon">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plane"/></svg>
           </span>
@@ -101,38 +105,38 @@
     <div class="wrap trust-row">
       <div class="trust-card">
         <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
-        <span><b>Global community</b><small>Rated travelers from 10 cities</small></span>
+        <span><b data-i18n="trust.community">Global community</b><small data-i18n="trust.communitySub">Rated travelers from 10 cities</small></span>
       </div>
       <div class="trust-card">
         <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
-        <span><b>Secure escrow</b><small>Paid only when you confirm delivery</small></span>
+        <span><b data-i18n="trust.escrow">Secure escrow</b><small data-i18n="trust.escrowSub">Paid only when you confirm delivery</small></span>
       </div>
       <div class="trust-card">
         <span class="icon-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg></span>
-        <span><b>Duty-free checked</b><small>Every request stays within €430</small></span>
+        <span><b data-i18n="trust.duty">Duty-free checked</b><small data-i18n="trust.dutySub">Every request stays within €430</small></span>
       </div>
     </div>
 
     <div class="wrap section">
       <div class="section-head">
-        <h2>What travelers carry</h2>
-        <button class="text-link" onclick="showView('browse')">See all trips →</button>
+        <h2 data-i18n="cats.title">What travelers carry</h2>
+        <button class="text-link" onclick="showView('browse')" data-i18n="cats.seeAll">See all trips →</button>
       </div>
       <div class="cat-tiles">
         <button class="cat-tile sand" data-cat-tile="Electronics">
-          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></span>Electronics
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg></span><span data-i18n="cat.Electronics">Electronics</span>
         </button>
         <button class="cat-tile mint" data-cat-tile="Clothing">
-          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.4 6.6 16 3a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.2 1.3l1.6 2.6a1 1 0 0 0 1.2.4L8 10v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V10l1.8.9a1 1 0 0 0 1.2-.4l1.6-2.6a1 1 0 0 0-.2-1.3z"/></svg></span>Clothing
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.4 6.6 16 3a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.2 1.3l1.6 2.6a1 1 0 0 0 1.2.4L8 10v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V10l1.8.9a1 1 0 0 0 1.2-.4l1.6-2.6a1 1 0 0 0-.2-1.3z"/></svg></span><span data-i18n="cat.Clothing">Clothing</span>
         </button>
         <button class="cat-tile sand" data-cat-tile="Cosmetics">
-          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span>Cosmetics
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span><span data-i18n="cat.Cosmetics">Cosmetics</span>
         </button>
         <button class="cat-tile mint" data-cat-tile="General">
-          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg></span>Gifts &amp; general
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg></span><span data-i18n="cat.General">Gifts &amp; general</span>
         </button>
         <button class="cat-tile sand" data-cat-tile="Alcohol">
-          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 22h8"/><path d="M12 15v7"/><path d="M7 2h10l-.5 6a4.5 4.5 0 0 1-9 0z"/></svg></span>Duty-free drinks
+          <span class="tile-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 22h8"/><path d="M12 15v7"/><path d="M7 2h10l-.5 6a4.5 4.5 0 0 1-9 0z"/></svg></span><span data-i18n="cat.Alcohol">Duty-free drinks</span>
         </button>
       </div>
     </div>
@@ -141,21 +145,21 @@
       <div class="green-banner">
         <svg class="banner-path" viewBox="0 0 600 200" aria-hidden="true"><path d="M20 170 C160 40 300 190 440 70 S560 40 590 30" fill="none" stroke="#A9C28F" stroke-width="2.5" stroke-dasharray="6 10" stroke-linecap="round"/></svg>
         <div class="banner-copy">
-          <h2>Flying to Turkey soon?<br>Your spare space can pay.</h2>
-          <p>List your trip, choose what you're happy to carry, and get paid when the buyer confirms delivery.</p>
+          <h2 data-i18n-html="banner.title">Flying to Turkey soon?<br>Your spare space can pay.</h2>
+          <p data-i18n="banner.text">List your trip, choose what you're happy to carry, and get paid when the buyer confirms delivery.</p>
         </div>
-        <button class="btn btn-sand" onclick="showView('list-trip')">List your trip
+        <button class="btn btn-sand" onclick="showView('list-trip')"><span data-i18n="banner.cta">List your trip</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
         </button>
       </div>
     </div>
 
     <div class="wrap section">
-      <div class="section-head"><h2>How it works</h2></div>
+      <div class="section-head"><h2 data-i18n="how.title">How it works</h2></div>
       <div class="steps">
-        <div class="card step-card"><span class="script-num">1.</span><h3>A traveler posts a trip</h3><p>Route, date, how many items and which kinds they'll carry.</p></div>
-        <div class="card step-card"><span class="script-num">2.</span><h3>You request an item</h3><p>Checked live against what's left of their duty-free allowance.</p></div>
-        <div class="card step-card"><span class="script-num">3.</span><h3>Paid on delivery</h3><p>Your payment waits in escrow until the item is in your hands.</p></div>
+        <div class="card step-card"><span class="script-num">1.</span><h3 data-i18n="how.1">A traveler posts a trip</h3><p data-i18n="how.1sub">Route, date, how many items and which kinds they'll carry.</p></div>
+        <div class="card step-card"><span class="script-num">2.</span><h3 data-i18n="how.2">You request an item</h3><p data-i18n="how.2sub">Checked live against what's left of their duty-free allowance.</p></div>
+        <div class="card step-card"><span class="script-num">3.</span><h3 data-i18n="how.3">Paid on delivery</h3><p data-i18n="how.3sub">Your payment waits in escrow until the item is in your hands.</p></div>
       </div>
     </div>
   </section>
@@ -165,16 +169,16 @@
     <div class="wrap page">
       <div class="page-head">
         <div>
-          <h1 class="page-title">Trips into <span>Turkey</span></h1>
-          <p class="page-sub"><span id="trip-count">6 OPEN</span> · sorted by departure</p>
+          <h1 class="page-title" data-i18n-html="browse.title">Trips into <span>Turkey</span></h1>
+          <p class="page-sub"><span id="trip-count">6 OPEN</span> · <span data-i18n="browse.sorted">sorted by departure</span></p>
         </div>
       </div>
-      <div class="filters" role="group" aria-label="Filter trips">
-        <button class="chip on" data-filter="all">All routes</button>
-        <button class="chip" data-filter="Europe">Europe</button>
-        <button class="chip" data-filter="Gulf">Gulf</button>
-        <button class="chip" data-filter="North America">North America</button>
-        <button class="chip" data-filter="week">This week</button>
+      <div class="filters" role="group" aria-label="Filter trips" data-i18n-aria="filter.aria">
+        <button class="chip on" data-filter="all" data-i18n="filter.all">All routes</button>
+        <button class="chip" data-filter="Europe" data-i18n="filter.Europe">Europe</button>
+        <button class="chip" data-filter="Gulf" data-i18n="filter.Gulf">Gulf</button>
+        <button class="chip" data-filter="North America" data-i18n="filter.NorthAmerica">North America</button>
+        <button class="chip" data-filter="week" data-i18n="filter.week">This week</button>
       </div>
       <div class="trip-grid" id="trip-grid"></div>
     </div>
@@ -185,39 +189,39 @@
     <div class="wrap page">
       <div class="page-head">
         <div>
-          <h1 class="page-title">List your <span>trip</span></h1>
-          <p class="page-sub">Tell buyers when you're flying and what you're happy to carry.</p>
+          <h1 class="page-title" data-i18n-html="lt.title">List your <span>trip</span></h1>
+          <p class="page-sub" data-i18n="lt.sub">Tell buyers when you're flying and what you're happy to carry.</p>
         </div>
       </div>
       <div class="card form-card narrow">
         <div class="two-col">
           <div class="form-group">
-            <label for="lt-city">Departure city</label>
+            <label for="lt-city" data-i18n="lt.city">Departure city</label>
             <select id="lt-city"></select>
           </div>
           <div class="form-group">
-            <label for="lt-date">Travel date</label>
+            <label for="lt-date" data-i18n="lt.date">Travel date</label>
             <input type="date" id="lt-date">
           </div>
         </div>
         <div class="form-group">
-          <label for="lt-capacity">How many items can you carry?</label>
-          <input type="number" id="lt-capacity" min="1" max="5" placeholder="e.g. 2">
-          <div class="form-hint">Keep this realistic — each item still has to fit your own €430 personal allowance.</div>
+          <label for="lt-capacity" data-i18n="lt.capacity">How many items can you carry?</label>
+          <input type="number" id="lt-capacity" min="1" max="5" placeholder="e.g. 2" data-i18n-ph="lt.capacityPh">
+          <div class="form-hint" data-i18n="lt.capacityHint">Keep this realistic — each item still has to fit your own €430 personal allowance.</div>
         </div>
         <div class="form-group">
-          <label>What are you willing to bring?</label>
+          <label data-i18n="lt.cats">What are you willing to bring?</label>
           <div class="cat-picker" id="lt-categories"></div>
-          <div class="form-hint warn">Phones are excluded — they carry special limits and IMEI registration requirements.</div>
+          <div class="form-hint warn" data-i18n="lt.phoneHint">Phones are excluded — they carry special limits and IMEI registration requirements.</div>
         </div>
         <div class="form-group">
-          <label for="lt-notes">Notes for buyers <span class="muted-label">(optional)</span></label>
-          <textarea rows="3" id="lt-notes" placeholder="e.g. No oversized items, arriving with one carry-on only"></textarea>
+          <label for="lt-notes"><span data-i18n="lt.notes">Notes for buyers</span> <span class="muted-label" data-i18n="optional">(optional)</span></label>
+          <textarea rows="3" id="lt-notes" placeholder="e.g. No oversized items, arriving with one carry-on only" data-i18n-ph="lt.notesPh"></textarea>
         </div>
         <div class="form-error" id="lt-error"></div>
         <p class="form-hint" id="lt-wallet"></p>
-        <button class="btn btn-primary btn-block" onclick="submitTrip()">Publish trip</button>
-        <div class="confirm-banner" id="trip-confirm">✓ Trip published — buyers can now send you requests.</div>
+        <button class="btn btn-primary btn-block" onclick="submitTrip()" data-i18n="lt.publish">Publish trip</button>
+        <div class="confirm-banner" id="trip-confirm" data-i18n="lt.confirm">✓ Trip published — buyers can now send you requests.</div>
       </div>
     </div>
   </section>
@@ -225,7 +229,7 @@
   <!-- DETAIL / REQUEST -->
   <section class="view" id="view-detail">
     <div class="wrap page">
-      <button class="text-link back" onclick="showView('browse')">← All trips</button>
+      <button class="text-link back" onclick="showView('browse')" data-i18n="detail.back">← All trips</button>
       <div class="trip-banner">
         <svg class="banner-path" viewBox="0 0 500 140" aria-hidden="true"><path d="M10 120 C120 20 250 130 360 50 S470 20 495 15" fill="none" stroke="#A9C28F" stroke-width="2.5" stroke-dasharray="6 10" stroke-linecap="round"/></svg>
         <div>
@@ -241,31 +245,31 @@
           <div class="notice" id="detail-blocked"></div>
 
           <div id="request-form">
-            <h2 class="sub-title">Request an item</h2>
+            <h2 class="sub-title" data-i18n="req.title">Request an item</h2>
             <div class="card form-card">
               <div class="form-group">
-                <label for="req-item">What do you need?</label>
-                <input type="text" id="req-item" placeholder="e.g. Sony WH-1000XM6 headphones">
+                <label for="req-item" data-i18n="req.item">What do you need?</label>
+                <input type="text" id="req-item" placeholder="e.g. Sony WH-1000XM6 headphones" data-i18n-ph="req.itemPh">
               </div>
               <div class="two-col">
                 <div class="form-group">
-                  <label for="price-input">Price (EUR)</label>
+                  <label for="price-input" data-i18n="req.price">Price (EUR)</label>
                   <input type="number" id="price-input" min="0" placeholder="0" oninput="updateLimit()">
                 </div>
                 <div class="form-group">
-                  <label for="cat-select">Category</label>
+                  <label for="cat-select" data-i18n="req.category">Category</label>
                   <select id="cat-select" onchange="updateLimit()">
-                    <option value="General">Gifts &amp; general</option>
-                    <option value="Electronics">Electronics</option>
-                    <option value="Clothing">Clothing</option>
-                    <option value="Cosmetics">Cosmetics</option>
-                    <option value="Alcohol">Duty-free drinks</option>
-                    <option value="Phone">Phone (special rules)</option>
+                    <option value="General" data-i18n="cat.General">Gifts &amp; general</option>
+                    <option value="Electronics" data-i18n="cat.Electronics">Electronics</option>
+                    <option value="Clothing" data-i18n="cat.Clothing">Clothing</option>
+                    <option value="Cosmetics" data-i18n="cat.Cosmetics">Cosmetics</option>
+                    <option value="Alcohol" data-i18n="cat.Alcohol">Duty-free drinks</option>
+                    <option value="Phone" data-i18n="cat.Phone">Phone (special rules)</option>
                   </select>
                 </div>
               </div>
               <div class="form-group">
-                <label for="req-link">Link <span class="muted-label">(optional)</span></label>
+                <label for="req-link"><span data-i18n="req.link">Link</span> <span class="muted-label" data-i18n="optional">(optional)</span></label>
                 <input type="text" id="req-link" placeholder="https://">
               </div>
 
@@ -274,14 +278,14 @@
                 <div class="bar"><div class="bar-used" id="limit-used"></div><div class="bar-fill" id="limit-bar"></div></div>
                 <div class="legend">
                   <span><i class="sw used"></i><span id="limit-used-label">Already requested · €0</span></span>
-                  <span><i class="sw yours"></i>Your item</span>
+                  <span><i class="sw yours"></i><span data-i18n="limit.yourItem">Your item</span></span>
                 </div>
                 <div class="limit-msg" id="limit-msg" role="status"></div>
               </div>
 
               <div class="form-error" id="req-error"></div>
               <p class="form-hint pay-note" id="pay-note"></p>
-              <button class="btn btn-primary btn-block" onclick="sendRequest()">Send request</button>
+              <button class="btn btn-primary btn-block" onclick="sendRequest()" data-i18n="req.send">Send request</button>
             </div>
           </div>
         </div>
@@ -292,16 +296,16 @@
               <span class="avatar-xl" id="side-init">E</span>
               <div>
                 <div class="traveler-name" id="side-name"></div>
-                <div class="traveler-meta"><span id="side-rating"></span> · <span id="side-trips"></span> trips completed</div>
+                <div class="traveler-meta"><span id="side-rating"></span> · <span id="side-trips"></span> <span data-i18n="side.trips">trips completed</span></div>
               </div>
             </div>
             <div class="side-reviews" id="side-reviews"></div>
           </div>
           <div class="side-card sand-card">
-            <h4>How you pay</h4>
-            <div class="side-row"><span>Pay by</span><b id="pay-by">Card (demo)</b></div>
-            <div class="side-row"><span>Held in</span><b id="pay-held">Escrow</b></div>
-            <div class="side-row"><span>Released</span><b id="pay-release">When you confirm delivery</b></div>
+            <h4 data-i18n="pay.title">How you pay</h4>
+            <div class="side-row"><span data-i18n="pay.by">Pay by</span><b id="pay-by">Card (demo)</b></div>
+            <div class="side-row"><span data-i18n="pay.held">Held in</span><b id="pay-held">Escrow</b></div>
+            <div class="side-row"><span data-i18n="pay.released">Released</span><b id="pay-release">When you confirm delivery</b></div>
           </div>
         </aside>
       </div>
@@ -313,27 +317,27 @@
     <div class="wrap page">
       <div class="page-head">
         <div>
-          <h1 class="page-title">Your journeys</h1>
+          <h1 class="page-title" data-i18n="dash.title">Your journeys</h1>
           <p class="page-sub" id="dash-count">0 active</p>
         </div>
-        <button class="btn btn-primary" onclick="showView('list-trip')">+ List a trip</button>
+        <button class="btn btn-primary" onclick="showView('list-trip')" data-i18n="dash.listBtn">+ List a trip</button>
       </div>
 
       <div class="stat-row">
-        <div class="stat green"><span>Held in escrow</span><b id="dash-escrow">€0</b></div>
-        <div class="stat sand"><span>Awaiting a traveler</span><b id="dash-waiting">€0</b></div>
-        <div class="stat mint"><span>Earned carrying</span><b id="dash-earned">€0</b></div>
+        <div class="stat green"><span data-i18n="stat.escrow">Held in escrow</span><b id="dash-escrow">€0</b></div>
+        <div class="stat sand"><span data-i18n="stat.waiting">Awaiting a traveler</span><b id="dash-waiting">€0</b></div>
+        <div class="stat mint"><span data-i18n="stat.earned">Earned carrying</span><b id="dash-earned">€0</b></div>
       </div>
 
       <div class="wallet-panel" id="wallet-panel"></div>
 
       <div class="dash-cols">
         <div>
-          <h2 class="sub-title">Requests you've sent</h2>
+          <h2 class="sub-title" data-i18n="dash.sent">Requests you've sent</h2>
           <div id="dash-sent"></div>
         </div>
         <div>
-          <h2 class="sub-title">Trips you're carrying</h2>
+          <h2 class="sub-title" data-i18n="dash.carrying">Trips you're carrying</h2>
           <div id="dash-carrying"></div>
         </div>
       </div>
@@ -343,7 +347,7 @@
   <!-- DISPUTE -->
   <section class="view" id="view-dispute">
     <div class="wrap page">
-      <button class="text-link back" onclick="showView('dashboard')">← Back to dashboard</button>
+      <button class="text-link back" onclick="showView('dashboard')" data-i18n="dispute.back">← Back to dashboard</button>
       <div class="dispute-header">
         <h1 class="page-title" id="dispute-title">Dispute</h1>
         <span class="status pending" id="dispute-status">Under review</span>
@@ -353,48 +357,48 @@
 
       <div class="card form-card narrow" id="dispute-form">
         <div class="form-group">
-          <label for="dispute-reason">What went wrong?</label>
+          <label for="dispute-reason" data-i18n="dispute.reasonLabel">What went wrong?</label>
           <select id="dispute-reason">
-            <option>Item not received</option>
-            <option>Item different from what was requested</option>
-            <option>Item damaged</option>
-            <option>Other</option>
+            <option value="not_received" data-i18n="reason.not_received">Item not received</option>
+            <option value="different" data-i18n="reason.different">Item different from what was requested</option>
+            <option value="damaged" data-i18n="reason.damaged">Item damaged</option>
+            <option value="other" data-i18n="reason.other">Other</option>
           </select>
         </div>
         <div class="form-group">
-          <label for="dispute-desc">Describe the issue</label>
-          <textarea rows="4" id="dispute-desc" placeholder="Add any details that will help resolve this quickly"></textarea>
+          <label for="dispute-desc" data-i18n="dispute.desc">Describe the issue</label>
+          <textarea rows="4" id="dispute-desc" placeholder="Add any details that will help resolve this quickly" data-i18n-ph="dispute.descPh"></textarea>
         </div>
-        <div class="evidence-drop">Attach photos or a tracking reference (optional)</div>
+        <div class="evidence-drop" data-i18n="dispute.evidence">Attach photos or a tracking reference (optional)</div>
         <div class="form-error" id="dispute-error"></div>
-        <button class="btn btn-primary btn-block" onclick="submitDispute()">Submit dispute</button>
+        <button class="btn btn-primary btn-block" onclick="submitDispute()" data-i18n="dispute.submit">Submit dispute</button>
       </div>
 
       <div class="card form-card narrow" id="dispute-chain">
-        <h2 class="sub-title">Settle it between you</h2>
-        <p class="form-hint">Nobody at Roamly can move these funds. Each side proposes how much goes back to the buyer — when both proposals match, the contract pays out instantly. <span id="dc-role"></span></p>
+        <h2 class="sub-title" data-i18n="dc.title">Settle it between you</h2>
+        <p class="form-hint"><span data-i18n="dc.intro">Nobody at Roamly can move these funds. Each side proposes how much goes back to the buyer — when both proposals match, the contract pays out instantly.</span> <span id="dc-role"></span></p>
         <div class="split-rows">
-          <div class="side-row"><span>Locked in contract</span><b id="dc-amount"></b></div>
-          <div class="side-row"><span>Buyer's offer</span><b id="dc-buyer"></b></div>
-          <div class="side-row"><span>Traveler's offer</span><b id="dc-traveler"></b></div>
+          <div class="side-row"><span data-i18n="dc.locked">Locked in contract</span><b id="dc-amount"></b></div>
+          <div class="side-row"><span data-i18n="dc.buyerOffer">Buyer's offer</span><b id="dc-buyer"></b></div>
+          <div class="side-row"><span data-i18n="dc.travelerOffer">Traveler's offer</span><b id="dc-traveler"></b></div>
         </div>
         <div class="form-group">
-          <label for="dc-refund">Refund to buyer (<span id="dc-unit">USDT</span>)</label>
+          <label for="dc-refund"><span data-i18n="dc.refundLabel">Refund to buyer</span> (<span id="dc-unit">USDT</span>)</label>
           <input type="number" id="dc-refund" min="0" step="0.01" placeholder="0">
         </div>
         <div class="dash-actions">
-          <button class="btn btn-sm btn-primary" onclick="proposeSplitUI()">Propose this split</button>
-          <button class="btn btn-sm btn-outline" id="dc-match" onclick="proposeSplitUI(this.dataset.offer)">Accept their offer</button>
-          <button class="btn btn-sm btn-sand" id="dc-settle" onclick="settleUI()">Split 50/50 now</button>
+          <button class="btn btn-sm btn-primary" onclick="proposeSplitUI()" data-i18n="dc.propose">Propose this split</button>
+          <button class="btn btn-sm btn-outline" id="dc-match" onclick="proposeSplitUI(this.dataset.offer)" data-i18n="dc.accept">Accept their offer</button>
+          <button class="btn btn-sm btn-sand" id="dc-settle" onclick="settleUI()" data-i18n="dc.settle">Split 50/50 now</button>
         </div>
         <p class="form-hint" id="dc-deadline"></p>
       </div>
 
       <div class="narrow" id="dispute-resolve">
-        <div class="notice" style="display:block;">Funds stay locked while support reviews this. In the prototype you can play the reviewer:</div>
+        <div class="notice" style="display:block;" data-i18n="resolve.notice">Funds stay locked while support reviews this. In the prototype you can play the reviewer:</div>
         <div class="dash-actions">
-          <button class="btn btn-sm btn-primary" onclick="resolveDispute('refund')">Refund buyer</button>
-          <button class="btn btn-sm btn-outline" onclick="resolveDispute('release')">Release to traveler</button>
+          <button class="btn btn-sm btn-primary" onclick="resolveDispute('refund')" data-i18n="resolve.refund">Refund buyer</button>
+          <button class="btn btn-sm btn-outline" onclick="resolveDispute('release')" data-i18n="resolve.release">Release to traveler</button>
         </div>
       </div>
     </div>
@@ -406,71 +410,71 @@
   <div class="wrap footer-inner">
     <div>
       <div class="footer-mark">Roamly</div>
-      <div>More than a marketplace… a travel community.</div>
+      <div data-i18n="footer.tagline">More than a marketplace… a travel community.</div>
     </div>
-    <div class="footer-note">Prototype — on-chain payments run on BNB Smart Chain Testnet with test tokens only; no real money, accounts or customs data are processed. · <button class="text-link light" onclick="resetDemo()">Reset demo data</button></div>
+    <div class="footer-note"><span data-i18n="footer.note">Prototype — on-chain payments run on BNB Smart Chain Testnet with test tokens only; no real money, accounts or customs data are processed.</span> · <button class="text-link light" onclick="resetDemo()" data-i18n="footer.reset">Reset demo data</button></div>
   </div>
 </footer>
 <div class="toast" id="toast" role="status"></div>
 
 <dialog class="rate-dialog" id="code-dialog" aria-labelledby="code-title">
-  <h2 class="sub-title" id="code-title">Your delivery code</h2>
-  <p class="form-hint"><span id="code-item"></span> · Check the item first. Showing this code tells the contract you received it, and <b>pays the traveler straight away</b>.</p>
+  <h2 class="sub-title" id="code-title" data-i18n="code.title">Your delivery code</h2>
+  <p class="form-hint"><span id="code-item"></span> · <span data-i18n-html="code.hint">Check the item first. Showing this code tells the contract you received it, and <b>pays the traveler straight away</b>.</span></p>
   <div class="code-qr" id="code-qr"></div>
   <div class="code-text" id="code-text"></div>
-  <p class="form-hint">Only stored in this browser. If you lose it, you can still use “Confirm received”.</p>
+  <p class="form-hint" data-i18n="code.stored">Only stored in this browser. If you lose it, you can still use “Confirm received”.</p>
   <div class="dash-actions">
-    <button type="button" class="btn btn-sm btn-primary" onclick="$('code-dialog').close()">Done</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="$('code-dialog').close()" data-i18n="done">Done</button>
   </div>
 </dialog>
 
 <dialog class="rate-dialog" id="entry-dialog" aria-labelledby="entry-title" onclose="stopScan()">
   <form method="dialog" onsubmit="event.preventDefault(); submitCode();">
-    <h2 class="sub-title" id="entry-title">Enter delivery code</h2>
-    <p class="form-hint"><span id="entry-item"></span> · Ask the buyer for their code once they've checked the item. The right code pays you at once.</p>
+    <h2 class="sub-title" id="entry-title" data-i18n="entry.title">Enter delivery code</h2>
+    <p class="form-hint"><span id="entry-item"></span> · <span data-i18n="entry.hint">Ask the buyer for their code once they've checked the item. The right code pays you at once.</span></p>
     <div class="scan-box" id="scan-box" hidden></div>
-    <button type="button" class="btn btn-sm btn-outline btn-block" onclick="startScan()">Scan the buyer's QR code</button>
+    <button type="button" class="btn btn-sm btn-outline btn-block" onclick="startScan()" data-i18n="entry.scan">Scan the buyer's QR code</button>
     <div class="form-group">
-      <label for="code-input">Or type it</label>
+      <label for="code-input" data-i18n="entry.type">Or type it</label>
       <input type="text" id="code-input" class="code-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">
     </div>
     <div class="form-error" id="entry-error"></div>
     <div class="dash-actions">
-      <button type="submit" class="btn btn-sm btn-primary">Confirm delivery</button>
-      <button type="button" class="btn btn-sm btn-ghost" onclick="closeEntryDialog()">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary" data-i18n="entry.confirm">Confirm delivery</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="closeEntryDialog()" data-i18n="cancel">Cancel</button>
     </div>
   </form>
 </dialog>
 
 <dialog class="rate-dialog" id="receipt-dialog" aria-labelledby="receipt-title">
   <form method="dialog" onsubmit="event.preventDefault(); submitReceipt();">
-    <h2 class="sub-title" id="receipt-title">Attach the receipt</h2>
-    <p class="form-hint"><span id="receipt-item"></span> · The photo stays in this browser. Its fingerprint, the total and the date are saved on-chain for good, so the receipt can't be swapped later.</p>
+    <h2 class="sub-title" id="receipt-title" data-i18n="receipt.title">Attach the receipt</h2>
+    <p class="form-hint"><span id="receipt-item"></span> · <span data-i18n="receipt.hint">The photo stays in this browser. Its fingerprint, the total and the date are saved on-chain for good, so the receipt can't be swapped later.</span></p>
     <label class="receipt-drop" for="receipt-file">
-      <img id="receipt-preview" alt="Receipt preview" hidden>
+      <img id="receipt-preview" alt="Receipt preview" data-i18n-alt="receipt.previewAlt" hidden>
       <span id="receipt-drop-text">Take or choose a photo of the receipt</span>
     </label>
     <input type="file" id="receipt-file" accept="image/*" onchange="onReceiptFile(this)" hidden>
     <div class="form-group">
-      <label for="receipt-total">Receipt total (€)</label>
+      <label for="receipt-total" data-i18n="receipt.total">Receipt total (€)</label>
       <input type="number" id="receipt-total" min="0.01" step="0.01" placeholder="0.00">
-      <span class="form-hint">Convert to euros if the shop used another currency.</span>
+      <span class="form-hint" data-i18n="receipt.convert">Convert to euros if the shop used another currency.</span>
     </div>
     <div class="form-error" id="receipt-error"></div>
     <div class="dash-actions">
-      <button type="submit" class="btn btn-sm btn-primary">Save receipt</button>
-      <button type="button" class="btn btn-sm btn-ghost" onclick="$('receipt-dialog').close()">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary" data-i18n="receipt.save">Save receipt</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="$('receipt-dialog').close()" data-i18n="cancel">Cancel</button>
     </div>
   </form>
 </dialog>
 
 <dialog class="rate-dialog" id="receipt-view" aria-labelledby="rv-title">
-  <h2 class="sub-title" id="rv-title">Receipt</h2>
+  <h2 class="sub-title" id="rv-title" data-i18n="rv.title">Receipt</h2>
   <p class="form-hint" id="rv-meta"></p>
-  <img class="receipt-img" id="rv-img" alt="Receipt photo" hidden>
+  <img class="receipt-img" id="rv-img" alt="Receipt photo" data-i18n-alt="rv.alt" hidden>
   <p class="rv-check" id="rv-check"></p>
   <div class="dash-actions">
-    <button type="button" class="btn btn-sm btn-primary" onclick="$('receipt-view').close()">Done</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="$('receipt-view').close()" data-i18n="done">Done</button>
   </div>
 </dialog>
 
@@ -478,22 +482,22 @@
   <form method="dialog" onsubmit="event.preventDefault(); submitRating();">
     <h2 class="sub-title" id="rate-title">Rate the traveler</h2>
     <p class="form-hint" id="rate-sub"></p>
-    <div class="rate-stars" id="rate-stars" role="group" aria-label="Stars">
-      <button type="button" aria-label="1 star" onclick="setRateStars(1)">★</button>
-      <button type="button" aria-label="2 stars" onclick="setRateStars(2)">★</button>
-      <button type="button" aria-label="3 stars" onclick="setRateStars(3)">★</button>
-      <button type="button" aria-label="4 stars" onclick="setRateStars(4)">★</button>
-      <button type="button" aria-label="5 stars" onclick="setRateStars(5)">★</button>
+    <div class="rate-stars" id="rate-stars" role="group" aria-label="Stars" data-i18n-aria="rate.starsAria">
+      <button type="button" aria-label="1 star" data-star="1" onclick="setRateStars(1)">★</button>
+      <button type="button" aria-label="2 stars" data-star="2" onclick="setRateStars(2)">★</button>
+      <button type="button" aria-label="3 stars" data-star="3" onclick="setRateStars(3)">★</button>
+      <button type="button" aria-label="4 stars" data-star="4" onclick="setRateStars(4)">★</button>
+      <button type="button" aria-label="5 stars" data-star="5" onclick="setRateStars(5)">★</button>
     </div>
     <div class="form-group">
-      <label for="rate-comment">Comment <span class="muted-label">(optional)</span></label>
-      <textarea rows="3" id="rate-comment" maxlength="140" placeholder="How did it go?" oninput="updateRateCount()"></textarea>
+      <label for="rate-comment"><span data-i18n="rate.comment">Comment</span> <span class="muted-label" data-i18n="optional">(optional)</span></label>
+      <textarea rows="3" id="rate-comment" maxlength="140" placeholder="How did it go?" data-i18n-ph="rate.commentPh" oninput="updateRateCount()"></textarea>
       <span class="form-hint rate-count" id="rate-count">0 / 140</span>
     </div>
     <div class="form-error" id="rate-error"></div>
     <div class="dash-actions">
-      <button type="submit" class="btn btn-sm btn-primary">Save rating</button>
-      <button type="button" class="btn btn-sm btn-ghost" onclick="$('rate-dialog').close()">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary" data-i18n="rate.save">Save rating</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="$('rate-dialog').close()" data-i18n="cancel">Cancel</button>
     </div>
   </form>
 </dialog>
@@ -504,6 +508,7 @@
   // Local-chain addresses only exist on a dev machine (gitignored), so don't request them on the live site
   if(['localhost', '127.0.0.1'].includes(location.hostname)) document.write('<script src="deployments.local.js"><\/script>');
 </script>
+<script src="i18n.js"></script>
 <script src="chain.js"></script>
 <script src="app.js"></script>
 </body>

@@ -331,7 +331,8 @@ main{min-height:60vh;}
 body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 @media (max-width:720px){
   .avatar-lg{display:none;}
-  .search{min-width:0;}
+  .header-tools{min-width:0;gap:8px;}
+  .search{min-width:0;padding:0 14px;}
   .wallet-btn{width:46px;padding:0;justify-content:center;}
   .wallet-btn #wallet-label{display:none;}
 }
@@ -370,3 +371,9 @@ body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 .rv-check{font-size:14px;font-weight:600;color:var(--muted);}
 .rv-check.ok{color:var(--green);}
 .rv-check.bad{color:var(--red-text);}
+
+/* ---------- Language switch ---------- */
+.lang-switch{display:inline-flex;flex:none;padding:3px;border-radius:999px;border:1px solid var(--line);background:var(--white);}
+.lang-switch button{min-width:38px;min-height:38px;padding:0 8px;border:none;border-radius:999px;background:none;font:inherit;font-size:13px;font-weight:800;color:var(--muted);cursor:pointer;}
+.lang-switch button.on{background:var(--green);color:var(--white);}
+.lang-switch button:not(.on):hover{color:var(--green);}

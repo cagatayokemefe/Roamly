@@ -29,12 +29,11 @@ async function loadRate(){
   if(typeof renderAll === 'function') renderAll();
 }
 
-// "1 € = 1.099 USDT · ECB, 20 Nov" — or a warning when no live rate is available
+// "1 € = 1.099 USDT · ECB rate, 20 Nov" — or a warning when no live rate is available
 function rateLabel(){
-  const day = fx.date ? new Date(fx.date + 'T00:00:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
-  if(fx.source === 'live') return `1 € = ${fx.rate} ${wallet.symbol} · ECB rate, ${day}`;
-  if(fx.source === 'saved') return `1 € = ${fx.rate} ${wallet.symbol} · last saved ECB rate, ${day} (live rate unavailable)`;
-  return `1 € ≈ ${fx.rate} ${wallet.symbol} · estimate — the live rate couldn’t be loaded`;
+  const day = fx.date ? new Date(fx.date + 'T00:00:00').toLocaleDateString(LOCALE(), {day:'numeric', month:'short'}) : '';
+  const vars = {rate:fmtNum(fx.rate, {maximumFractionDigits:4}), sym:wallet.symbol, day};
+  return t(fx.source === 'live' ? 'rate.live' : fx.source === 'saved' ? 'rate.saved' : 'rate.fallback', vars);
 }
 const DEPLOYMENTS = {...window.ROAMLY_DEPLOYMENTS, ...window.ROAMLY_LOCAL_DEPLOYMENTS};
 const NETWORKS = {
@@ -79,32 +78,13 @@ const DEAL = ['None','Funded','Accepted','Delivered','Disputed','Released','Refu
 const CONFIRM_WINDOW = 7 * 86400;  // must match the contract
 const DISPUTE_WINDOW = 30 * 86400;
 const DELIVER_GRACE_DAYS = 14;     // traveler has until trip date + 14 days to deliver
-const CHAIN_ERRORS = {
-  NotBuyer:'Only the buyer’s wallet can do this — switch accounts in MetaMask.',
-  NotTraveler:'Only the traveler’s wallet can do this — switch accounts in MetaMask.',
-  NotParty:'Only the buyer or the traveler can propose a split.',
-  WrongStatus:'This deal has already moved on — refreshing it.',
-  TooEarly:'Too early — the waiting period hasn’t ended yet.',
-  TooLate:'Too late — that window has closed.',
-  InvalidParams:'The contract rejected these details.',
-  AlreadyRated:'You’ve already rated this deal — ratings can’t be changed.',
-  WrongCode:'That code doesn’t match — check it with the buyer.',
-  AlreadyAttached:'A receipt is already attached to this deal — it can’t be replaced.',
-};
+// Contract error name → message ('err.<name>' in i18n.js); unknown errors show their name
+const chainError = name => STRINGS.en['err.' + name] ? t('err.' + name) : name;
+// App action → contract function; the "in progress" text is 'pending.<action>' in i18n.js
 const CHAIN_ACTIONS = {
-  cancel:        {fn:'cancel',          pending:'Cancelling and refunding'},
-  decline:       {fn:'decline',         pending:'Declining and refunding the buyer'},
-  accept:        {fn:'accept',          pending:'Accepting the request'},
-  deliver:       {fn:'markDelivered',   pending:'Marking as delivered'},
-  confirm:       {fn:'confirmDelivery', pending:'Releasing payment to the traveler'},
-  dispute:       {fn:'openDispute',     pending:'Opening a dispute'},
-  'claim-pay':   {fn:'claimPayment',    pending:'Claiming your payment'},
-  'claim-refund':{fn:'claimRefund',     pending:'Claiming your refund'},
-  propose:       {fn:'proposeSplit',    pending:'Sending your offer'},
-  settle:        {fn:'settleStalemate', pending:'Settling 50/50'},
-  rate:          {fn:'rate',            pending:'Saving your rating on-chain'},
-  code:          {fn:'confirmWithCode', pending:'Checking the code and releasing payment'},
-  receipt:       {fn:'attachReceipt',   pending:'Saving the receipt fingerprint on-chain'},
+  cancel:'cancel', decline:'decline', accept:'accept', deliver:'markDelivered', confirm:'confirmDelivery',
+  dispute:'openDispute', 'claim-pay':'claimPayment', 'claim-refund':'claimRefund', propose:'proposeSplit',
+  settle:'settleStalemate', rate:'rate', code:'confirmWithCode', receipt:'attachReceipt',
 };
 
 const FINAL_DEALS = ['Released','Refunded','Split'];
@@ -119,7 +99,7 @@ const chainReady = () => !!(wallet.account && wallet.escrow);
 const isCurrentContract = req => !!req.chain && req.chain.chainId === wallet.chainId && sameAddr(req.chain.escrow, wallet.dep?.escrow);
 const networkName = id => NETWORKS[id]?.chainName || `chain ${id}`;
 const nowSec = () => Math.floor(Date.now() / 1000);
-const fmtSecDay = s => new Date(s * 1000).toLocaleDateString('en-GB', {day:'numeric', month:'short'});
+const fmtSecDay = s => new Date(s * 1000).toLocaleDateString(LOCALE(), {day:'numeric', month:'short'});
 
 function canPayOnChain(trip){
   return chainReady() && !!trip?.wallet && !sameAddr(trip.wallet, wallet.account);
@@ -131,12 +111,12 @@ function eurToUnits(eur){
 const depositFor = units => BigInt(units) * wallet.depositBps / 10000n;
 function fmtUnits(units, decimals = wallet.decimals, symbol = wallet.symbol){
   const n = Number(ethers.formatUnits(BigInt(units), decimals));
-  return `${n.toLocaleString('en-GB', {maximumFractionDigits:2})} ${symbol}`;
+  return `${fmtNum(n, {maximumFractionDigits:2})} ${symbol}`;
 }
 const fmtDeal = (req, units) => fmtUnits(units, req.chain.decimals, req.chain.symbol);
 function txLink(chainId, hash){
   const base = NETWORKS[chainId]?.blockExplorerUrls?.[0];
-  return base ? `<a class="link" href="${base}/tx/${hash}" target="_blank" rel="noopener">view tx ↗</a>` : '';
+  return base ? `<a class="link" href="${base}/tx/${hash}" target="_blank" rel="noopener">${t('tx.view')}</a>` : '';
 }
 function chainRole(req){
   if(sameAddr(wallet.account, req.chain?.buyer)) return 'buyer';
@@ -145,21 +125,21 @@ function chainRole(req){
 }
 
 function friendlyError(e){
-  if(e?.code === 'ACTION_REJECTED' || e?.code === 4001 || e?.info?.error?.code === 4001) return 'Cancelled in your wallet.';
-  if(e?.revert?.name) return CHAIN_ERRORS[e.revert.name] || e.revert.name;
+  if(e?.code === 'ACTION_REJECTED' || e?.code === 4001 || e?.info?.error?.code === 4001) return t('err.rejected');
+  if(e?.revert?.name) return chainError(e.revert.name);
   const data = e?.data?.data ?? e?.data ?? e?.info?.error?.data ?? e?.error?.data;
   try {
     const parsed = data && wallet.escrow?.interface.parseError(data);
-    if(parsed) return CHAIN_ERRORS[parsed.name] || parsed.name;
+    if(parsed) return chainError(parsed.name);
   } catch {}
-  return e?.shortMessage || e?.message || 'Something went wrong with the transaction.';
+  return e?.shortMessage || e?.message || t('err.generic');
 }
 
 // ---------- Wallet connection ----------
 async function connectWallet(){
-  if(!hasEthers){ toast('Couldn’t load the blockchain library — check your connection.'); return; }
+  if(!hasEthers){ toast(t('toast.noLib')); return; }
   if(!window.ethereum){
-    toast('Install MetaMask to pay on-chain — demo mode keeps working without it.');
+    toast(t('toast.installMM'));
     window.open('https://metamask.io/download/', '_blank', 'noopener');
     return;
   }
@@ -167,7 +147,7 @@ async function connectWallet(){
     const [account] = await window.ethereum.request({method:'eth_requestAccounts'});
     await ensureNetwork();
     await setupWallet(account);
-    if(chainReady()) toast(`Wallet connected — ${shortAddr(wallet.account)} on ${networkName(wallet.chainId)}`);
+    if(chainReady()) toast(t('toast.connected', {addr:shortAddr(wallet.account), net:networkName(wallet.chainId)}));
   } catch(e){ toast(friendlyError(e)); }
 }
 
@@ -176,7 +156,7 @@ async function ensureNetwork(){
   const current = parseInt(await window.ethereum.request({method:'eth_chainId'}), 16);
   if(DEPLOYMENTS[current]) return;
   const target = DEPLOYMENTS[97] ? 97 : Number(Object.keys(DEPLOYMENTS)[0]);
-  if(!target) throw new Error('The escrow contract isn’t deployed yet — run npm run deploy:testnet.');
+  if(!target) throw new Error(t('err.notDeployed'));
   const net = NETWORKS[target];
   try {
     await window.ethereum.request({method:'wallet_switchEthereumChain', params:[{chainId:net.chainId}]});
@@ -217,19 +197,19 @@ async function refreshBalance(){
 
 async function getTestTokens(){
   if(!chainReady()) return connectWallet();
-  const receipt = await sendTx('Minting 1,000 test USDT', () => wallet.token.faucet());
-  if(receipt){ await refreshBalance(); toast(`Added 1,000 ${wallet.symbol} to your wallet`); }
+  const receipt = await sendTx(t('pending.mint'), () => wallet.token.faucet());
+  if(receipt){ await refreshBalance(); toast(t('toast.minted', {sym:wallet.symbol})); }
 }
 
 // ---------- Transactions ----------
 async function sendTx(pending, fn){
-  if(wallet.busy){ toast('Finish the open transaction in your wallet first.'); return null; }
+  if(wallet.busy){ toast(t('toast.busy')); return null; }
   wallet.busy = true;
   document.body.classList.add('tx-busy');
   try {
-    toast(`${pending} — confirm in your wallet…`);
+    toast(t('tx.confirm', {p:pending}));
     const tx = await fn();
-    toast(`${pending} — waiting for the block…`);
+    toast(t('tx.wait', {p:pending}));
     return await tx.wait();
   } catch(e){
     toast(friendlyError(e));
@@ -244,12 +224,12 @@ async function sendTx(pending, fn){
 async function ensureFunds(units){
   await refreshBalance();
   if(wallet.balance !== null && wallet.balance < units){
-    toast(`You need ${fmtUnits(units)} but have ${fmtUnits(wallet.balance)}.` + (wallet.dep.testToken ? ' Use “Get test USDT” on your dashboard.' : ''));
+    toast(t('toast.needFunds', {need:fmtUnits(units), have:fmtUnits(wallet.balance)}) + (wallet.dep.testToken ? t('toast.useFaucet') : ''));
     return false;
   }
   const allowance = await wallet.token.allowance(wallet.account, wallet.dep.escrow);
   if(allowance >= units) return true;
-  return !!await sendTx(`Allowing Roamly escrow to take ${fmtUnits(units)}`, () => wallet.token.approve(wallet.dep.escrow, units));
+  return !!await sendTx(t('pending.approve', {amt:fmtUnits(units)}), () => wallet.token.approve(wallet.dep.escrow, units));
 }
 
 // Approve + lock the buyer's payment and deposit. Returns the chain record for the request, or null.
@@ -259,7 +239,7 @@ async function payOnChain(req, trip){
   if(!await ensureFunds(amount + deposit)) return null;
   const deliverBy = Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400;
   const code = newDeliveryCode();
-  const receipt = await sendTx(`Locking ${fmtUnits(amount)} + ${fmtUnits(deposit)} deposit in escrow`,
+  const receipt = await sendTx(t('pending.lock', {amt:fmtUnits(amount), dep:fmtUnits(deposit)}),
     () => wallet.escrow.createDeal(trip.wallet, amount, deliverBy, ethers.encodeBytes32String(req.id), ethers.id(code)));
   if(!receipt) return null;
   const created = receipt.logs.map(l => { try { return wallet.escrow.interface.parseLog(l); } catch { return null; } })
@@ -270,13 +250,12 @@ async function payOnChain(req, trip){
 }
 
 async function chainAction(req, act, ...args){
-  if(!chainReady()){ toast('Connect your wallet to manage on-chain deals.'); return false; }
-  if(req.chain.chainId !== wallet.chainId){ toast(`This deal lives on ${networkName(req.chain.chainId)} — switch network in MetaMask.`); return false; }
-  if(!isCurrentContract(req)){ toast('This deal belongs to an older Roamly contract.'); return false; }
-  const a = CHAIN_ACTIONS[act];
+  if(!chainReady()){ toast(t('toast.connectToManage')); return false; }
+  if(req.chain.chainId !== wallet.chainId){ toast(t('toast.wrongNet', {net:networkName(req.chain.chainId)})); return false; }
+  if(!isCurrentContract(req)){ toast(t('toast.oldContract')); return false; }
   // Accepting locks the traveler's deposit, so the escrow needs permission to take it first
   if(act === 'accept' && !await ensureFunds(BigInt(req.chain.deposit || 0))) return false;
-  const receipt = await sendTx(a.pending, () => wallet.escrow[a.fn](req.chain.dealId, ...args));
+  const receipt = await sendTx(t('pending.' + act), () => wallet.escrow[CHAIN_ACTIONS[act]](req.chain.dealId, ...args));
   if(receipt){
     req.chain.txs.push(receipt.hash);
     req.chain.intent = act;
@@ -290,17 +269,19 @@ async function chainAction(req, act, ...args){
 }
 
 // ---------- Reading deals back from the chain ----------
+// History entry ({k, v}) for a deal reaching chain status `s`
 function chainHistoryLabel(req, s){
   const d = req.deal || {};
   const refunded = fmtDeal(req, BigInt(req.chain.amount) + BigInt(d.buyerDeposit || 0) + BigInt(d.travelerDeposit || 0));
   const net = fmtDeal(req, BigInt(req.chain.amount) * BigInt(10000 - (DEPLOYMENTS[req.chain.chainId]?.feeBps ?? 200)) / 10000n);
+  const forfeit = BigInt(d.travelerDeposit || 0) > 0n && req.chain.intent === 'claim-refund';
   return {
-    Accepted:`Accepted — traveler locked a ${fmtDeal(req, d.travelerDeposit || 0)} deposit too`,
-    Delivered:'Traveler marked it delivered — 7 days to confirm or dispute',
-    Disputed:`Dispute opened${req.dispute ? ` — ${req.dispute.reason.toLowerCase()}` : ''} — funds frozen in the contract`,
-    Released:`${req.chain.intent === 'code' ? 'Delivery code confirmed — ' : 'Released — '}${net} to traveler (2% fee), deposits returned`,
-    Refunded:`Refunded — ${refunded} back to buyer${BigInt(d.travelerDeposit || 0) > 0n && d.status === 'Refunded' && req.chain.intent === 'claim-refund' ? ', including the traveler’s deposit' : ''}`,
-    Split:'Settled by split — paid out by the contract',
+    Accepted:{k:'hist.c.Accepted', v:{dep:fmtDeal(req, d.travelerDeposit || 0)}},
+    Delivered:{k:'hist.c.Delivered', v:{}},
+    Disputed:{k:'hist.c.Disputed', v:{reason:req.dispute?.reason || ''}},
+    Released:{k:req.chain.intent === 'code' ? 'hist.c.ReleasedCode' : 'hist.c.Released', v:{net}},
+    Refunded:{k:forfeit ? 'hist.c.RefundedForfeit' : 'hist.c.Refunded', v:{amt:refunded}},
+    Split:{k:'hist.c.Split', v:{}},
   }[s];
 }
 function appStatusFor(req, s){
@@ -337,8 +318,8 @@ async function syncDeal(req){
   if(prev === s){ save(); return reviewsChanged; }
   const next = appStatusFor(req, s);
   const label = chainHistoryLabel(req, s);
-  if(next !== req.status) setStatus(req, next, label);
-  else { if(label) req.history.push({label, at:nowIso()}); save(); }
+  if(next !== req.status) setStatus(req, next, label?.k, label?.v);
+  else { if(label) req.history.push({...label, at:nowIso()}); save(); }
   delete req.chain.intent;
   return true;
 }
@@ -377,9 +358,9 @@ const starsText = n => '★'.repeat(n) + '☆'.repeat(5 - n);
 function onChainRating(trip, short = false){
   const rep = repOf(trip?.wallet);
   if(!rep) return null;
-  if(!rep.count) return short ? 'New traveler' : 'No ratings yet';
-  const avg = (rep.total / rep.count).toFixed(1);
-  return short ? `★ ${avg} on-chain` : `★ ${avg} · ${rep.count} on-chain rating${rep.count === 1 ? '' : 's'}`;
+  if(!rep.count) return short ? t('rating.new') : t('rating.none');
+  const avg = fmtNum(rep.total / rep.count, {minimumFractionDigits:1, maximumFractionDigits:1});
+  return short ? t('rating.short', {avg}) : t('rating.long', {avg, n:rep.count});
 }
 
 // Comments buyers left for this traveler, from deals this browser knows about
@@ -400,18 +381,20 @@ function reviewLines(req){
   if(!r) return '';
   const line = (who, rv) => rv?.stars
     ? `<p class="review-line"><span class="stars">${starsText(rv.stars)}</span> ${who}${rv.comment ? ` — “${esc(rv.comment)}”` : ''}</p>` : '';
-  return line('from buyer', r.byBuyer) + line('from traveler', r.byTraveler);
+  return line(t('review.fromBuyer'), r.byBuyer) + line(t('review.fromTraveler'), r.byTraveler);
 }
 
 let rateTarget = null, rateStars = 0;
 function openRateDialog(req){
   const role = chainRole(req);
-  if(!role){ toast('Connect the buyer’s or traveler’s wallet to rate this deal.'); return; }
-  if(!canRate(req, role)){ toast(CHAIN_ERRORS.AlreadyRated); return; }
+  if(!role){ toast(t('toast.connectToRate')); return; }
+  if(!canRate(req, role)){ toast(chainError('AlreadyRated')); return; }
   rateTarget = req.id;
   const trip = tripById(req.tripId);
-  $('rate-title').textContent = role === 'buyer' ? `Rate ${trip?.mine ? 'the traveler' : trip?.traveler || 'the traveler'}` : 'Rate the buyer';
-  $('rate-sub').textContent = `${req.item} · saved on-chain for good — it can’t be edited or deleted.`;
+  $('rate-title').textContent = role === 'buyer'
+    ? (trip && !trip.mine ? t('rate.rateName', {name:trip.traveler}) : t('rate.rateTraveler'))
+    : t('rate.rateBuyer');
+  $('rate-sub').textContent = t('rate.sub', {item:req.item});
   $('rate-comment').value = '';
   setRateStars(0);
   updateRateCount();
@@ -432,13 +415,13 @@ async function submitRating(){
   const req = reqById(rateTarget);
   const comment = $('rate-comment').value.trim();
   if(!req) return;
-  if(!rateStars){ $('rate-error').textContent = 'Pick 1 to 5 stars.'; return; }
-  if([...comment].length > MAX_COMMENT){ $('rate-error').textContent = `Keep the comment under ${MAX_COMMENT} characters.`; return; }
+  if(!rateStars){ $('rate-error').textContent = t('rate.errStars'); return; }
+  if([...comment].length > MAX_COMMENT){ $('rate-error').textContent = t('rate.errLong', {n:MAX_COMMENT}); return; }
   $('rate-dialog').close();
   if(await chainAction(req, 'rate', rateStars, comment)){
     await loadReputations();
     renderAll();
-    toast('Thanks — your rating is saved on-chain');
+    toast(t('toast.rated'));
   }
 }
 
@@ -448,7 +431,7 @@ async function submitRating(){
 const RECEIPT_MAX_PX = 1024;
 let receiptTarget = null, receiptDraft = null;
 
-const fmtEur = cents => `€${(cents / 100).toFixed(2)}`;
+const fmtEur = cents => '€' + fmtNum(cents / 100, {minimumFractionDigits:2, maximumFractionDigits:2});
 function dataUrlBytes(dataUrl){
   const bin = atob(dataUrl.split(',')[1]);
   return Uint8Array.from(bin, c => c.charCodeAt(0));
@@ -480,8 +463,8 @@ function receiptLine(req){
   const r = req.receipt;
   if(!r) return '';
   const over = r.totalCents - Math.round(req.price * 100);
-  return `<p class="receipt-line">🧾 Receipt ${fmtEur(r.totalCents)} · ${fmtSecDay(r.attachedAt)}` +
-    (over > 0 ? ` · <span class="warn">${fmtEur(over)} above the agreed €${req.price}</span>` : '') + `</p>`;
+  return `<p class="receipt-line">${t('receipt.line', {total:fmtEur(r.totalCents), day:fmtSecDay(r.attachedAt)})}` +
+    (over > 0 ? ` · <span class="warn">${t('receipt.over', {over:fmtEur(over), price:fmtNum(req.price)})}</span>` : '') + `</p>`;
 }
 
 function openReceiptDialog(req){
@@ -491,7 +474,7 @@ function openReceiptDialog(req){
   $('receipt-file').value = '';
   $('receipt-total').value = '';
   $('receipt-preview').hidden = true;
-  $('receipt-drop-text').textContent = 'Take or choose a photo of the receipt';
+  $('receipt-drop-text').textContent = t('receipt.pick');
   $('receipt-error').textContent = '';
   $('receipt-dialog').showModal();
 }
@@ -504,10 +487,10 @@ async function onReceiptFile(input){
     receiptDraft = await compressImage(file);
     $('receipt-preview').src = receiptDraft;
     $('receipt-preview').hidden = false;
-    $('receipt-drop-text').textContent = 'Tap to choose a different photo';
+    $('receipt-drop-text').textContent = t('receipt.repick');
   } catch {
     receiptDraft = null;
-    $('receipt-error').textContent = 'That file isn’t an image we can read — try a JPEG or PNG photo.';
+    $('receipt-error').textContent = t('receipt.errNotImage');
   }
 }
 
@@ -515,38 +498,38 @@ async function submitReceipt(){
   const req = reqById(receiptTarget);
   const total = parseFloat($('receipt-total').value);
   if(!req) return;
-  if(!receiptDraft){ $('receipt-error').textContent = 'Add a photo of the receipt.'; return; }
-  if(!(total > 0)){ $('receipt-error').textContent = 'Enter the receipt total in euros.'; return; }
+  if(!receiptDraft){ $('receipt-error').textContent = t('receipt.errPhoto'); return; }
+  if(!(total > 0)){ $('receipt-error').textContent = t('receipt.errTotal'); return; }
   // Make sure the photo fits in browser storage before saving its fingerprint for good
   req.receiptImage = receiptDraft;
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
   catch {
     delete req.receiptImage;
-    $('receipt-error').textContent = 'This browser’s storage is full, so the photo couldn’t be kept. Try a smaller photo.';
+    $('receipt-error').textContent = t('receipt.errStorage');
     return;
   }
   $('receipt-dialog').close();
   const ok = await chainAction(req, 'receipt', receiptHash(receiptDraft), Math.round(total * 100));
   if(!ok){ delete req.receiptImage; save(); return; }
-  toast('Receipt attached — its fingerprint is saved on-chain');
+  toast(t('toast.receipt'));
 }
 
 function openReceiptViewer(req){
   const r = req.receipt;
   if(!r) return;
-  $('rv-meta').textContent = `${req.item} · total ${fmtEur(r.totalCents)} · attached ${fmtSecDay(r.attachedAt)}`;
+  $('rv-meta').textContent = t('rv.meta', {item:req.item, total:fmtEur(r.totalCents), day:fmtSecDay(r.attachedAt)});
   const img = $('rv-img'), check = $('rv-check');
   img.hidden = !req.receiptImage;
   if(req.receiptImage) img.src = req.receiptImage;
   if(!req.receiptImage){
     check.className = 'rv-check';
-    check.textContent = 'The photo isn’t stored in this browser — only its fingerprint is on-chain.';
+    check.textContent = t('rv.noPhoto');
   } else if(receiptHash(req.receiptImage) === r.hash){
     check.className = 'rv-check ok';
-    check.textContent = '✓ This photo matches the fingerprint saved on-chain, so it hasn’t been changed since.';
+    check.textContent = t('rv.ok');
   } else {
     check.className = 'rv-check bad';
-    check.textContent = '⚠ This photo does NOT match the fingerprint saved on-chain.';
+    check.textContent = t('rv.bad');
   }
   $('receipt-view').showModal();
 }
@@ -578,7 +561,7 @@ function loadScript(src){
 
 // Buyer: show the code as a QR and as text
 async function openCodeDialog(req){
-  if(!req.chain?.code){ toast('This browser doesn’t have the delivery code for this request.'); return; }
+  if(!req.chain?.code){ toast(t('code.noCode')); return; }
   $('code-text').textContent = formatCode(req.chain.code);
   $('code-item').textContent = req.item;
   const box = $('code-qr');
@@ -588,7 +571,7 @@ async function openCodeDialog(req){
     await loadScript(QR_LIB);
     new QRCode(box, {text:codePayload(req), width:220, height:220, colorDark:'#1B1F1A', colorLight:'#FFFFFF', correctLevel:QRCode.CorrectLevel.M});
   } catch {
-    box.innerHTML = '<p class="form-hint">Couldn’t draw the QR code — read out the code below instead.</p>';
+    box.innerHTML = `<p class="form-hint">${t('code.qrFail')}</p>`;
   }
 }
 
@@ -611,7 +594,7 @@ async function startScan(){
     await scanner.start({facingMode:'environment'}, {fps:10, qrbox:220}, text => { stopScan(); useScannedCode(text); });
   } catch {
     stopScan();
-    $('entry-error').textContent = 'Couldn’t open the camera — type the code instead.';
+    $('entry-error').textContent = t('code.camFail');
   }
 }
 function stopScan(){
@@ -625,8 +608,8 @@ function stopScan(){
 function useScannedCode(text){
   const [tag, dealId, code] = String(text).split(':');
   const req = reqById(codeTarget);
-  if(tag !== 'roamly' || !code){ $('entry-error').textContent = 'That isn’t a Roamly delivery code.'; return; }
-  if(dealId !== req?.chain.dealId){ $('entry-error').textContent = 'That code is for a different request.'; return; }
+  if(tag !== 'roamly' || !code){ $('entry-error').textContent = t('code.notRoamly'); return; }
+  if(dealId !== req?.chain.dealId){ $('entry-error').textContent = t('code.otherDeal'); return; }
   $('code-input').value = formatCode(normalizeCode(code));
   submitCode();
 }
@@ -638,11 +621,11 @@ async function submitCode(){
   const req = reqById(codeTarget);
   const code = normalizeCode($('code-input').value);
   if(!req) return;
-  if(code.length !== 16){ $('entry-error').textContent = 'The code has 16 letters and numbers.'; return; }
+  if(code.length !== 16){ $('entry-error').textContent = t('code.len'); return; }
   // check against the on-chain hash first, so a typo doesn't cost a transaction
-  if(req.deal?.codeHash && ethers.id(code) !== req.deal.codeHash){ $('entry-error').textContent = CHAIN_ERRORS.WrongCode; return; }
+  if(req.deal?.codeHash && ethers.id(code) !== req.deal.codeHash){ $('entry-error').textContent = chainError('WrongCode'); return; }
   closeEntryDialog();
-  if(await chainAction(req, 'code', code)) toast('Code accepted — the contract paid you');
+  if(await chainAction(req, 'code', code)) toast(t('toast.codeOk'));
 }
 
 // ---------- Rendering ----------
@@ -653,35 +636,33 @@ function renderWallet(){
   btn.classList.toggle('connected', chainReady());
   btn.classList.toggle('warn', !!wallet.account && !wallet.dep);
   if(chainReady()) label.textContent = shortAddr(wallet.account);
-  else if(wallet.account) label.textContent = 'Wrong network';
-  else label.textContent = 'Connect wallet';
-  btn.setAttribute('aria-label', chainReady() ? `Wallet ${wallet.account}` : label.textContent);
-  btn.title = chainReady() ? `${wallet.account} on ${networkName(wallet.chainId)}` : 'Connect a wallet to pay through the escrow contract';
+  else if(wallet.account) label.textContent = t('wallet.wrongNet');
+  else label.textContent = t('wallet.connect');
+  btn.setAttribute('aria-label', chainReady() ? t('wallet.aria', {addr:wallet.account}) : label.textContent);
+  btn.title = chainReady() ? t('wallet.titleOn', {addr:wallet.account, net:networkName(wallet.chainId)}) : t('wallet.titleOff');
 
-  $('lt-wallet').innerHTML = chainReady()
-    ? `Buyers will pay into the escrow contract. Payouts go to your wallet <b>${esc(shortAddr(wallet.account))}</b>.`
-    : `<span class="link" onclick="connectWallet()">Connect a wallet</span> so buyers can pay you through the escrow contract — otherwise this trip runs in demo mode.`;
+  $('lt-wallet').innerHTML = chainReady() ? t('lt.walletOn', {addr:esc(shortAddr(wallet.account))}) : t('lt.walletOff');
 
   const panel = $('wallet-panel');
   if(!chainReady()){
     panel.innerHTML = `
-      <div><b>Pay through a smart contract</b>
-        <span>Connect MetaMask and your payment is locked in the Roamly escrow contract on BNB Smart Chain — not held by Roamly or the traveler.</span></div>
-      <button class="btn btn-sm btn-primary" onclick="${wallet.account ? 'ensureNetwork().then(() => setupWallet(wallet.account)).catch(e => toast(friendlyError(e)))' : 'connectWallet()'}">${wallet.account ? 'Switch network' : 'Connect wallet'}</button>`;
+      <div><b>${t('panel.title')}</b>
+        <span>${t('panel.text')}</span></div>
+      <button class="btn btn-sm btn-primary" onclick="${wallet.account ? 'ensureNetwork().then(() => setupWallet(wallet.account)).catch(e => toast(friendlyError(e)))' : 'connectWallet()'}">${wallet.account ? t('panel.switch') : t('wallet.connect')}</button>`;
     return;
   }
   panel.innerHTML = `
     <div><b>${esc(shortAddr(wallet.account))} · ${wallet.balance === null ? '…' : esc(fmtUnits(wallet.balance))}</b>
-      <span>${esc(networkName(wallet.chainId))} · escrow ${esc(shortAddr(wallet.dep.escrow))} · ${wallet.dep.feeBps / 100}% fee on payouts, none on refunds</span></div>
-    ${wallet.dep.testToken ? '<button class="btn btn-sm btn-sand" onclick="getTestTokens()">Get test USDT</button>' : ''}`;
+      <span>${esc(t('panel.info', {net:networkName(wallet.chainId), addr:shortAddr(wallet.dep.escrow), fee:fmtNum(wallet.dep.feeBps / 100)}))}</span></div>
+    ${wallet.dep.testToken ? `<button class="btn btn-sm btn-sand" onclick="getTestTokens()">${t('panel.faucet')}</button>` : ''}`;
 }
 
 // Meta line + buttons for an on-chain request on the dashboard
 function chainItemMeta(req){
   const last = req.chain.txs[req.chain.txs.length - 1];
   const deposit = BigInt(req.chain.deposit || 0);
-  const depText = deposit > 0n ? ` + ${esc(fmtDeal(req, deposit))} deposit${req.deal?.accepted ? ' each' : ''}` : '';
-  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))}${depText} in contract · ${txLink(req.chain.chainId, last)}</p>${receiptLine(req)}${reviewLines(req)}`;
+  const depText = deposit > 0n ? t(req.deal?.accepted ? 'meta.depEach' : 'meta.dep', {d:fmtDeal(req, deposit)}) : '';
+  return `<p class="chain-meta">${esc(t('meta.deal', {id:req.chain.dealId, amt:fmtDeal(req, req.chain.amount), dep:depText}))}${txLink(req.chain.chainId, last)}</p>${receiptLine(req)}${reviewLines(req)}`;
 }
 
 function chainHint(req, side){
@@ -689,19 +670,17 @@ function chainHint(req, side){
   if(!d) return '';
   const now = nowSec();
   if(d.status === 'Funded') return side === 'buyer'
-    ? `Funds are locked in the contract. If ${esc(tripById(req.tripId)?.traveler || 'the traveler')} doesn't accept, cancel any time for a full refund.`
-    : `The buyer’s money is already locked in the contract. Accepting locks your refundable ${esc(fmtDeal(req, req.chain.deposit || 0))} deposit — you only lose it if you miss the delivery deadline.`;
+    ? t('hint.fundedBuyer', {name:esc(travelerName(tripById(req.tripId)) || t('role.traveler'))})
+    : t('hint.fundedTraveler', {dep:esc(fmtDeal(req, req.chain.deposit || 0))});
   if(d.status === 'Accepted'){
-    if(now > d.deliverBy) return 'The delivery deadline has passed — the buyer can reclaim the funds plus the traveler’s deposit.';
+    if(now > d.deliverBy) return t('hint.deadlinePassed');
     return side === 'buyer' && req.chain.code
-      ? `When you get the item, check it, then show your delivery code — that releases the payment. If it doesn't arrive by ${fmtSecDay(d.deliverBy)}, you can reclaim everything plus the traveler's deposit.`
-      : `Deliver by ${fmtSecDay(d.deliverBy)}, or the buyer can reclaim the funds plus the traveler’s deposit. At handover, enter the buyer's delivery code to get paid at once.`;
+      ? t('hint.acceptedBuyer', {date:fmtSecDay(d.deliverBy)})
+      : t('hint.acceptedTraveler', {date:fmtSecDay(d.deliverBy)});
   }
   if(d.status === 'Delivered'){
     const due = d.deliveredAt + CONFIRM_WINDOW;
-    return now >= due
-      ? 'The 7-day window has ended — the traveler can claim the payment.'
-      : `Pays out automatically from ${fmtSecDay(due)} unless the buyer confirms sooner or disputes.`;
+    return now >= due ? t('hint.windowOver') : t('hint.autoPay', {date:fmtSecDay(due)});
   }
   return '';
 }
@@ -713,44 +692,47 @@ function chainButtons(req, side){
   const b = (act, label, cls = 'btn-ghost') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${req.id}">${label}</button>`;
   const out = [];
   if(side === 'buyer'){
-    if(d.status === 'Funded') out.push(b('cancel', 'Cancel & refund'));
-    if(req.chain.code && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('show-code', 'Show delivery code', 'btn-primary'));
+    if(d.status === 'Funded') out.push(b('cancel', t('btn.cancelRefund')));
+    if(req.chain.code && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('show-code', t('btn.showCode'), 'btn-primary'));
     if(d.status === 'Accepted' || (d.status === 'Delivered' && now < d.deliveredAt + CONFIRM_WINDOW))
-      out.push(b('confirm', 'Confirm received', req.chain.code ? 'btn-outline' : 'btn-primary'), b('dispute', 'Raise a dispute'));
-    if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('confirm', 'Confirm received', 'btn-primary'));
-    if((d.status === 'Funded' || d.status === 'Accepted') && now > d.deliverBy) out.push(b('claim-refund', 'Claim refund', 'btn-outline'));
+      out.push(b('confirm', t('btn.confirm'), req.chain.code ? 'btn-outline' : 'btn-primary'), b('dispute', t('btn.dispute')));
+    if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('confirm', t('btn.confirm'), 'btn-primary'));
+    if((d.status === 'Funded' || d.status === 'Accepted') && now > d.deliverBy) out.push(b('claim-refund', t('btn.claimRefund'), 'btn-outline'));
   } else {
-    if(d.status === 'Funded') out.push(b('accept', 'Accept', 'btn-primary'), b('decline', 'Decline'));
+    if(d.status === 'Funded') out.push(b('accept', t('btn.accept'), 'btn-primary'), b('decline', t('btn.decline')));
     const hasCode = d.codeHash && d.codeHash !== ethers.ZeroHash;
-    if(hasCode && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('enter-code', 'Enter delivery code', 'btn-primary'));
-    if(d.status === 'Accepted') out.push(b('deliver', hasCode ? 'Delivered without code' : 'Mark delivered', hasCode ? 'btn-ghost' : 'btn-primary'));
-    if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('claim-pay', 'Claim payment', 'btn-primary'));
+    if(hasCode && (d.status === 'Accepted' || d.status === 'Delivered')) out.push(b('enter-code', t('btn.enterCode'), 'btn-primary'));
+    if(d.status === 'Accepted') out.push(b('deliver', hasCode ? t('btn.deliveredNoCode') : t('btn.markDelivered'), hasCode ? 'btn-ghost' : 'btn-primary'));
+    if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('claim-pay', t('btn.claimPay'), 'btn-primary'));
   }
-  if(d.status === 'Disputed') out.push(b('dispute', 'View dispute'));
-  if(req.receipt) out.push(b('view-receipt', '🧾 View receipt'));
-  else if(side === 'traveler' && ['Accepted','Delivered','Disputed'].includes(d.status)) out.push(b('receipt', '🧾 Attach receipt'));
-  if(canRate(req, side)) out.push(b('rate', side === 'buyer' ? '★ Rate the traveler' : '★ Rate the buyer', 'btn-sand'));
+  if(d.status === 'Disputed') out.push(b('dispute', t('btn.viewDispute')));
+  if(req.receipt) out.push(b('view-receipt', t('btn.viewReceipt')));
+  else if(side === 'traveler' && ['Accepted','Delivered','Disputed'].includes(d.status)) out.push(b('receipt', t('btn.attachReceipt')));
+  if(canRate(req, side)) out.push(b('rate', side === 'buyer' ? t('btn.rateTraveler') : t('btn.rateBuyer'), 'btn-sand'));
   return out.join('');
 }
 
 // Detail page: tell the buyer how this request will be paid
 function renderPayMode(trip){
   const onChain = canPayOnChain(trip);
-  $('pay-by').textContent = onChain ? `${wallet.symbol} (BNB Smart Chain)` : 'Card (demo)';
-  $('pay-held').textContent = onChain ? 'Smart contract — no one holds it' : 'Escrow';
-  $('pay-release').textContent = onChain ? 'When you confirm, or 7 days after delivery' : 'When you confirm delivery';
+  $('pay-by').textContent = onChain ? `${wallet.symbol} (BNB Smart Chain)` : t('pay.byDemo');
+  $('pay-held').textContent = onChain ? t('pay.heldChain') : t('pay.heldDemo');
+  $('pay-release').textContent = onChain ? t('pay.releaseChain') : t('pay.releaseDemo');
   const note = $('pay-note');
   const price = parseFloat($('price-input').value) || 0;
   if(onChain){
     const units = eurToUnits(price);
-    note.innerHTML = `Pays ${price > 0 ? `<b>${esc(fmtUnits(units))}</b> (€${price})` : 'the price in ' + esc(wallet.symbol)} into the escrow contract` +
-      (wallet.depositBps > 0n ? `, plus a refundable ${price > 0 ? `<b>${esc(fmtUnits(depositFor(units)))}</b>` : `${wallet.depositBps / 100n}%`} deposit you get back unless a dispute runs out the 30 days. ` : '. ') +
-      `${trip.mine ? 'The traveler' : esc(trip.traveler)} must deliver by ${fmtSecDay(Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400)} or you can reclaim it.` +
+    const amt = price > 0 ? `<b>${esc(fmtUnits(units))}</b> (${eur(price)})` : esc(t('pay.amountUnknown', {sym:wallet.symbol}));
+    const dep = price > 0 ? `<b>${esc(fmtUnits(depositFor(units)))}</b>` : `${fmtNum(Number(wallet.depositBps) / 100)}%`;
+    const deliverBy = fmtSecDay(Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400);
+    note.innerHTML = t('pay.amount', {amt}) +
+      (wallet.depositBps > 0n ? t('pay.deposit', {dep}) : t('pay.noDeposit')) +
+      esc(t('pay.deliverBy', {name:trip.mine ? t('pay.theTraveler') : trip.traveler, date:deliverBy})) +
       `<span class="rate-line${fx.source === 'live' ? '' : ' warn'}">${esc(rateLabel())}</span>`;
   } else if(trip?.wallet && !chainReady()){
-    note.innerHTML = `${esc(trip.traveler)} accepts on-chain payment. <span class="link" onclick="connectWallet()">Connect your wallet</span> to pay through the escrow contract.`;
+    note.innerHTML = t('pay.connectHint', {name:esc(travelerName(trip))});
   } else {
-    note.textContent = 'This traveler hasn’t linked a wallet, so the request runs in demo escrow.';
+    note.textContent = t('pay.demo');
   }
 }
 
@@ -762,11 +744,11 @@ function renderChainDispute(req){
   if(!show) return;
   const d = req.deal;
   const role = chainRole(req);
-  const offer = v => v === '0' ? 'No offer yet' : `${fmtDeal(req, BigInt(v) - 1n)} back to buyer`;
+  const offer = v => v === '0' ? t('dc.noOffer') : t('dc.offer', {amt:fmtDeal(req, BigInt(v) - 1n)});
   $('dc-amount').textContent = fmtDeal(req, req.chain.amount);
   $('dc-buyer').textContent = offer(d.buyerOffer);
   $('dc-traveler').textContent = offer(d.travelerOffer);
-  $('dc-role').textContent = role ? `You're the ${role} on this deal.` : 'Connect the buyer’s or traveler’s wallet to make an offer.';
+  $('dc-role').textContent = role ? t('dc.role', {role:t('role.' + role)}) : t('dc.connect');
   $('dc-unit').textContent = req.chain.symbol;
   const theirs = role === 'buyer' ? d.travelerOffer : role === 'traveler' ? d.buyerOffer : '0';
   $('dc-match').style.display = theirs !== '0' ? 'inline-flex' : 'none';
@@ -774,8 +756,8 @@ function renderChainDispute(req){
   const due = d.disputedAt + DISPUTE_WINDOW;
   const canSettle = nowSec() >= due;
   $('dc-deadline').textContent = canSettle
-    ? 'No agreement after 30 days — anyone can now split the payment 50/50. The buyer’s deposit goes to the traveler.'
-    : `If you don't agree by ${fmtSecDay(due)}, the contract lets anyone split the payment 50/50 — and the buyer’s ${fmtDeal(req, d.buyerDeposit || 0)} deposit goes to the traveler. Agree before then and both deposits are returned.`;
+    ? t('dc.canSettle')
+    : t('dc.deadline', {date:fmtSecDay(due), dep:fmtDeal(req, d.buyerDeposit || 0)});
   $('dc-settle').style.display = canSettle ? 'inline-flex' : 'none';
 }
 
@@ -785,19 +767,19 @@ async function proposeSplitUI(units){
   let toBuyer = units;
   if(toBuyer === undefined){
     const v = parseFloat($('dc-refund').value);
-    if(!(v >= 0)){ toast('Enter how much should go back to the buyer.'); return; }
+    if(!(v >= 0)){ toast(t('dc.errAmount')); return; }
     toBuyer = ethers.parseUnits(v.toFixed(2), req.chain.decimals);
   }
-  if(BigInt(toBuyer) > BigInt(req.chain.amount)){ toast(`That's more than the ${fmtDeal(req, req.chain.amount)} in the contract.`); return; }
+  if(BigInt(toBuyer) > BigInt(req.chain.amount)){ toast(t('dc.errTooMuch', {amt:fmtDeal(req, req.chain.amount)})); return; }
   if(await chainAction(req, 'propose', toBuyer)){
     $('dc-refund').value = '';
-    toast(req.status === 'disputed' ? 'Offer sent — it pays out as soon as the other side proposes the same split.' : 'You both agreed — the contract paid out.');
+    toast(req.status === 'disputed' ? t('dc.sent') : t('dc.agreed'));
   }
 }
 
 async function settleUI(){
   const req = reqById(state.disputeId);
-  if(req?.chain && await chainAction(req, 'settle')) toast('Settled 50/50 by the contract.');
+  if(req?.chain && await chainAction(req, 'settle')) toast(t('dc.settled'));
 }
 
 // Reconnect silently if the site was already authorised, and keep deals in sync

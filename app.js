@@ -4,10 +4,10 @@ const OLD_STORE_KEY = 'tasi-state-v1'; // pre-rename key, read once so saved dat
 const LIMIT = 430; // personal duty-free allowance per traveler, EUR
 const CATEGORIES = ['Electronics','Clothing','Cosmetics','General','Alcohol'];
 const CITIES = {
-  PRG:{city:'Prague', region:'Europe'},
+  PRG:{city:'Prague', tr:'Prag', region:'Europe'},
   BER:{city:'Berlin', region:'Europe'},
-  LON:{city:'London', region:'Europe'},
-  VIE:{city:'Vienna', region:'Europe'},
+  LON:{city:'London', tr:'Londra', region:'Europe'},
+  VIE:{city:'Vienna', tr:'Viyana', region:'Europe'},
   AMS:{city:'Amsterdam', region:'Europe'},
   PAR:{city:'Paris', region:'Europe'},
   DXB:{city:'Dubai', region:'Gulf'},
@@ -18,14 +18,14 @@ const CITIES = {
 const ACTIVE = ['pending','escrow','disputed'];      // still in progress
 const HOLDS_SLOT = ['pending','escrow','disputed','completed','split']; // uses capacity + allowance
 const STATUS = {
-  pending:  {label:'Awaiting traveler', cls:'pending', step:1},
-  escrow:   {label:'In escrow',         cls:'escrow',  step:2},
-  disputed: {label:'Disputed',          cls:'disputed',step:2},
-  completed:{label:'Delivered',         cls:'done',    step:4},
-  split:    {label:'Settled by split',  cls:'done',    step:4},
-  refunded: {label:'Refunded',          cls:'muted',   step:0},
-  declined: {label:'Declined',          cls:'muted',   step:0},
-  cancelled:{label:'Cancelled',         cls:'muted',   step:0},
+  pending:  {cls:'pending', step:1},
+  escrow:   {cls:'escrow',  step:2},
+  disputed: {cls:'disputed',step:2},
+  completed:{cls:'done',    step:4},
+  split:    {cls:'done',    step:4},
+  refunded: {cls:'muted',   step:0},
+  declined: {cls:'muted',   step:0},
+  cancelled:{cls:'muted',   step:0},
 };
 
 // ---------- Helpers ----------
@@ -33,6 +33,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid = p => p + Math.random().toString(36).slice(2, 9);
 const nowIso = () => new Date().toISOString();
+const eur = n => '€' + fmtNum(n);
 
 function localDate(offsetDays = 0){
   const d = new Date();
@@ -40,11 +41,16 @@ function localDate(offsetDays = 0){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 const parseDay = iso => new Date(iso + 'T00:00:00');
-const fmtDay = iso => parseDay(iso).toLocaleDateString('en-GB', {day:'2-digit', month:'short'});
-const fmtStamp = iso => new Date(iso).toLocaleDateString('en-GB', {day:'2-digit', month:'short'});
+const fmtDay = iso => parseDay(iso).toLocaleDateString(LOCALE(), {day:'2-digit', month:'short'});
+const fmtStamp = iso => new Date(iso).toLocaleDateString(LOCALE(), {day:'2-digit', month:'short'});
 const daysFromToday = iso => Math.round((parseDay(iso) - parseDay(localDate())) / 86400000);
 const initials = name => name.trim().charAt(0).toUpperCase();
 const shortName = name => { const p = name.split(' '); return p.length > 1 ? `${p[0][0]}. ${p.slice(1).join(' ')}` : name; };
+// Your own trips and requests are stored as "You"/"you"; show them in the current language
+const travelerName = trip => trip?.mine ? t('you') : trip?.traveler || '';
+const buyerName = req => req.buyer === 'you' ? t('you') : req.buyer;
+// History entries are stored as {k, v} (translation key + values); older saved ones as plain text
+const histLabel = h => h.k ? t(h.k, h.v) : h.label;
 
 // ---------- State ----------
 function seed(){
@@ -61,12 +67,12 @@ function seed(){
     t('t8','PRG',-10,'You',1,['Clothing'],{mine:true}),
   ];
   const r = (id, tripId, item, price, category, buyer, status, history) =>
-    ({id, tripId, item, link:'', price, category, buyer, status, history:history.map(([label, d]) => ({label, at:new Date(Date.now() + d*86400000).toISOString()}))});
+    ({id, tripId, item, link:'', price, category, buyer, status, history:history.map(([k, d]) => ({k, v:{price}, at:new Date(Date.now() + d*86400000).toISOString()}))});
   const requests = [
-    r('r1','t1','Sony WH-1000XM6',249,'Electronics','you','escrow',[['Request sent',-3],['Accepted — €249 locked in escrow',-2]]),
-    r('r2','t2','Skincare set',85,'Cosmetics','you','pending',[['Request sent',-1]]),
-    r('r3','t8','Leather jacket',180,'Clothing','Can B.','completed',[['Request sent',-16],['Accepted — €180 locked in escrow',-15],['Buyer confirmed delivery — €180 released',-9]]),
-    r('r4','t7','Nintendo Switch 2',329,'Electronics','Deniz A.','pending',[['Request sent',0]]),
+    r('r1','t1','Sony WH-1000XM6',249,'Electronics','you','escrow',[['hist.sent',-3],['hist.accepted',-2]]),
+    r('r2','t2','Skincare set',85,'Cosmetics','you','pending',[['hist.sent',-1]]),
+    r('r3','t8','Leather jacket',180,'Clothing','Can B.','completed',[['hist.sent',-16],['hist.accepted',-15],['hist.confirmed',-9]]),
+    r('r4','t7','Nintendo Switch 2',329,'Electronics','Deniz A.','pending',[['hist.sent',0]]),
   ];
   return {trips, requests, filter:'all', selectedTripId:null, disputeId:null};
 }
@@ -81,13 +87,13 @@ const tripRequests = trip => state.requests.filter(r => r.tripId === trip.id);
 const slotsUsed = trip => tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).length;
 const slotsLeft = trip => Math.max(trip.capacity - slotsUsed(trip), 0);
 const allowanceUsed = trip => tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).reduce((s, r) => s + r.price, 0);
-const cityOf = trip => CITIES[trip.code]?.city || trip.code;
+const cityOf = trip => { const c = CITIES[trip.code]; return c ? (LANG === 'tr' && c.tr) || c.city : trip.code; };
 const regionOf = trip => CITIES[trip.code]?.region || 'Europe';
 const isUpcoming = trip => daysFromToday(trip.date) >= 0;
 
-function setStatus(req, status, label){
+function setStatus(req, status, k, v = {}){
   req.status = status;
-  req.history.push({label, at:nowIso()});
+  req.history.push({k, v, at:nowIso()});
   save();
 }
 
@@ -122,9 +128,8 @@ function renderHeroPass(){
   const pass = $('hero-pass');
   if(!trip){ pass.style.visibility = 'hidden'; return; }
   pass.style.visibility = 'visible';
-  const left = slotsLeft(trip);
   $('pass-route').textContent = `${trip.code} → IST · ${fmtDay(trip.date)}`;
-  $('pass-meta').textContent = `${shortName(trip.traveler)} · ${left} item${left === 1 ? '' : 's'} left · €${LIMIT - allowanceUsed(trip)} allowance`;
+  $('pass-meta').textContent = t('pass.meta', {name:shortName(trip.traveler), n:slotsLeft(trip), free:fmtNum(LIMIT - allowanceUsed(trip))});
   pass.onclick = () => openTrip(trip.id);
 }
 
@@ -137,7 +142,7 @@ function renderNotifDot(){
 let searchTerm = '';
 
 function visibleTrips(){
-  const q = searchTerm.trim().toLowerCase();
+  const q = searchTerm.trim().toLocaleLowerCase(LOCALE());
   return state.trips
     .filter(isUpcoming)
     .filter(t => {
@@ -145,43 +150,44 @@ function visibleTrips(){
       if(state.filter === 'week') return daysFromToday(t.date) <= 7;
       return regionOf(t) === state.filter;
     })
-    .filter(t => !q || [t.code, cityOf(t), t.traveler, ...t.categories].some(s => s.toLowerCase().includes(q)))
+    .filter(t => !q || [t.code, cityOf(t), CITIES[t.code]?.city || '', travelerName(t), ...t.categories, ...t.categories.map(catName)]
+      .some(s => s.toLocaleLowerCase(LOCALE()).includes(q)))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function whenLabel(trip){
   const d = daysFromToday(trip.date);
-  return d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : `In ${d} days`;
+  return d === 0 ? t('when.today') : d === 1 ? t('when.tomorrow') : t('when.inDays', {n:d});
 }
 
 function renderTrips(){
   const trips = visibleTrips();
   const open = trips.filter(t => slotsLeft(t) > 0).length;
-  $('trip-count').textContent = `${open} trip${open === 1 ? '' : 's'} with space` + (searchTerm.trim() ? ` matching “${searchTerm.trim()}”` : '');
+  $('trip-count').textContent = t('browse.count', {n:open}) + (searchTerm.trim() ? t('browse.matching', {q:searchTerm.trim()}) : '');
   document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.filter === state.filter));
-  $('trip-grid').innerHTML = trips.length ? trips.map((t, i) => {
-    const left = slotsLeft(t);
-    const free = LIMIT - allowanceUsed(t);
-    const rating = t.mine ? 'Your trip' : onChainRating(t, true) || `★ ${t.rating.toFixed(1)}`;
+  $('trip-grid').innerHTML = trips.length ? trips.map((tr, i) => {
+    const left = slotsLeft(tr);
+    const free = LIMIT - allowanceUsed(tr);
+    const rating = tr.mine ? t('card.yourTrip') : onChainRating(tr, true) || `★ ${fmtNum(tr.rating, {minimumFractionDigits:1, maximumFractionDigits:1})}`;
     return `
-      <button class="trip-card ${left ? '' : 'full'}" data-trip="${t.id}">
+      <button class="trip-card ${left ? '' : 'full'}" data-trip="${tr.id}">
         <div class="trip-top ${i % 2 ? 'mint' : 'sand'}">
-          <span class="trip-route">${esc(t.code)} <span class="arr">✈</span> IST${t.mine ? '<span class="badge-mine">YOURS</span>' : ''}</span>
-          <span class="when ${daysFromToday(t.date) <= 7 ? 'soon' : ''}">${whenLabel(t)}</span>
+          <span class="trip-route">${esc(tr.code)} <span class="arr">✈</span> IST${tr.mine ? `<span class="badge-mine">${t('card.yours')}</span>` : ''}</span>
+          <span class="when ${daysFromToday(tr.date) <= 7 ? 'soon' : ''}">${whenLabel(tr)}</span>
         </div>
         <div class="trip-body">
           <div class="traveler">
-            <span class="avatar">${esc(initials(t.traveler))}</span>
-            <span><b>${esc(t.traveler)}</b><small>${esc(cityOf(t))} · ${fmtDay(t.date)} · ${rating}</small></span>
+            <span class="avatar">${esc(initials(travelerName(tr)))}</span>
+            <span><b>${esc(travelerName(tr))}</b><small>${esc(cityOf(tr))} · ${fmtDay(tr.date)} · ${rating}</small></span>
           </div>
-          <div class="trip-tags">${t.categories.map(c => `<span class="tag">${esc(c)}</span>`).join('')}</div>
+          <div class="trip-tags">${tr.categories.map(c => `<span class="tag">${esc(catName(c))}</span>`).join('')}</div>
           <div class="trip-foot">
-            <span class="muted">${left ? `${left} of ${t.capacity} item${t.capacity === 1 ? '' : 's'} left · €${free} free` : 'Full'}</span>
-            <span class="go">${t.mine ? 'View →' : left ? 'Request →' : ''}</span>
+            <span class="muted">${left ? t('card.left', {left, cap:tr.capacity, free:fmtNum(free)}) : t('card.full')}</span>
+            <span class="go">${tr.mine ? t('card.view') : left ? t('card.request') : ''}</span>
           </div>
         </div>
       </button>`;
-  }).join('') : '<div class="empty">No upcoming trips match. Try another filter or search.</div>';
+  }).join('') : `<div class="empty">${t('browse.empty')}</div>`;
 }
 
 function openTrip(id){
@@ -195,36 +201,34 @@ function renderDetail(){
   const trip = tripById(state.selectedTripId);
   const form = $('request-form');
   if(!trip){
-    $('detail-route').textContent = 'No open trips';
+    $('detail-route').textContent = t('detail.noTrips');
     $('detail-date').textContent = '';
     $('detail-tags').innerHTML = '';
-    $('detail-desc').textContent = 'There are no trips with free capacity right now.';
+    $('detail-desc').textContent = t('detail.noTripsDesc');
     form.classList.add('disabled');
     return;
   }
   const left = slotsLeft(trip);
+  const name = travelerName(trip);
   $('detail-route').textContent = `${cityOf(trip)} → İstanbul`;
-  $('detail-date').textContent = parseDay(trip.date).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long'});
+  $('detail-date').textContent = parseDay(trip.date).toLocaleDateString(LOCALE(), {weekday:'long', day:'numeric', month:'long'});
   $('detail-tags').innerHTML =
-    `<span class="hl">${left} of ${trip.capacity} item${trip.capacity === 1 ? '' : 's'} left</span>` +
-    `<span>${trip.categories.map(esc).join(' · ')}</span>`;
+    `<span class="hl">${t('detail.left', {left, cap:trip.capacity})}</span>` +
+    `<span>${trip.categories.map(c => esc(catName(c))).join(' · ')}</span>`;
   $('detail-desc').textContent =
-    `Carrying up to ${trip.capacity} personal item${trip.capacity === 1 ? '' : 's'}. ` +
-    `Willing to bring ${trip.categories.join(', ').toLowerCase()}.` + (trip.notes ? ` ${trip.notes}` : '');
-  $('side-init').textContent = initials(trip.traveler);
-  $('side-name').textContent = trip.traveler;
+    t('detail.desc', {cap:trip.capacity, cats:trip.categories.map(catName).join(', ').toLocaleLowerCase(LOCALE())}) + (trip.notes ? ` ${trip.notes}` : '');
+  $('side-init').textContent = initials(name);
+  $('side-name').textContent = name;
   $('side-trips').textContent = trip.completed ?? 0;
-  $('side-rating').textContent = onChainRating(trip) || (trip.mine ? 'New traveler' : `★ ${trip.rating.toFixed(1)}`);
+  $('side-rating').textContent = onChainRating(trip) || (trip.mine ? t('side.newTraveler') : `★ ${fmtNum(trip.rating, {minimumFractionDigits:1, maximumFractionDigits:1})}`);
   const reviews = reviewsFor(trip);
   $('side-reviews').innerHTML = reviews.slice(-3).reverse().map(r =>
     `<div class="review-line"><span class="stars">${starsText(r.stars)}</span>${r.comment ? ` “${esc(r.comment)}”` : ''} <span class="muted">· ${esc(r.item)}</span></div>`).join('');
-  $('limit-label').textContent = trip.mine ? 'Your duty-free allowance' : `${trip.traveler.split(' ')[0]}'s duty-free allowance`;
+  $('limit-label').textContent = trip.mine ? t('limit.yours') : t('limit.theirs', {name:name.split(' ')[0]});
 
   let blocked = '';
-  if(trip.mine && !canPayOnChain(trip)) blocked = trip.wallet
-    ? 'This is your own trip — switch MetaMask to another account to test requesting on it.'
-    : 'This is your own trip — buyers will send requests to you.';
-  else if(!left) blocked = 'This trip is full.';
+  if(trip.mine && !canPayOnChain(trip)) blocked = trip.wallet ? t('blocked.ownWallet') : t('blocked.own');
+  else if(!left) blocked = t('blocked.full');
   $('detail-blocked').textContent = blocked;
   $('detail-blocked').style.display = blocked ? 'block' : 'none';
   form.classList.toggle('disabled', !!blocked);
@@ -240,18 +244,18 @@ function checkRequest(){
   const base = {total, used, price};
   if(!trip) return {...base, ok:false, msg:''};
   if(trip.mine && !canPayOnChain(trip)) return {...base, ok:false, msg:'', neutral:true};
-  if(cat === 'Phone') return {...base, ok:false, msg:'Phones are limited to one per traveler per 3 years and need IMEI registration — not available yet.'};
-  if(!trip.categories.includes(cat)) return {...base, ok:false, msg:`${trip.traveler} isn't carrying ${cat.toLowerCase()} on this trip.`};
-  if(total > LIMIT) return {...base, ok:false, msg:`Over the allowance — this traveler has €${LIMIT - used} left on this trip.`};
-  if(price <= 0) return {...base, ok:false, msg:`Enter a price. €${LIMIT - used} of this traveler's allowance is still free.`, neutral:true};
-  return {...base, ok:true, msg:`Within the allowance — €${LIMIT - total} would remain for other buyers.`};
+  if(cat === 'Phone') return {...base, ok:false, msg:t('check.phone')};
+  if(!trip.categories.includes(cat)) return {...base, ok:false, msg:t('check.category', {name:travelerName(trip), cat:catName(cat).toLocaleLowerCase(LOCALE())})};
+  if(total > LIMIT) return {...base, ok:false, msg:t('check.over', {left:fmtNum(LIMIT - used)})};
+  if(price <= 0) return {...base, ok:false, msg:t('check.enterPrice', {left:fmtNum(LIMIT - used)}), neutral:true};
+  return {...base, ok:true, msg:t('check.ok', {left:fmtNum(LIMIT - total)})};
 }
 
 function updateLimit(){
   const res = checkRequest();
-  $('limit-total').textContent = `€${res.total} / €${LIMIT}`;
+  $('limit-total').textContent = `${eur(res.total)} / ${eur(LIMIT)}`;
   $('limit-used').style.width = Math.min(res.used / LIMIT * 100, 100) + '%';
-  $('limit-used-label').textContent = `Already requested · €${res.used}`;
+  $('limit-used-label').textContent = t('limit.already', {n:fmtNum(res.used)});
   const bar = $('limit-bar');
   bar.style.width = Math.min(res.price, Math.max(LIMIT - res.used, 0)) / LIMIT * 100 + '%';
   const bad = !res.ok && !res.neutral;
@@ -276,22 +280,23 @@ async function sendRequest(){
   const err = $('req-error');
   const onChain = canPayOnChain(trip);
   if(!trip || (trip.mine && !onChain) || !slotsLeft(trip)) return;
-  if(!item){ err.textContent = 'Tell the traveler what you need.'; return; }
-  if(link && !/^https?:\/\/\S+$/i.test(link)){ err.textContent = 'The link should start with http:// or https://'; return; }
+  if(!item){ err.textContent = t('req.errItem'); return; }
+  if(link && !/^https?:\/\/\S+$/i.test(link)){ err.textContent = t('req.errLink'); return; }
   const res = checkRequest();
   if(!res.ok){ err.textContent = res.msg; return; }
   err.textContent = '';
-  const req = {id:uid('r'), tripId:trip.id, item, link, price, category:$('cat-select').value, buyer:'you', status:'pending', history:[{label:'Request sent', at:nowIso()}]};
+  const req = {id:uid('r'), tripId:trip.id, item, link, price, category:$('cat-select').value, buyer:'you', status:'pending', history:[{k:'hist.sent', v:{}, at:nowIso()}]};
   if(onChain){
     const chain = await payOnChain(req, trip);
     if(!chain) return;
     req.chain = chain;
-    req.history[0].label = `Request sent — ${fmtDeal(req, chain.amount)}${BigInt(chain.deposit) > 0n ? ` + ${fmtDeal(req, chain.deposit)} deposit` : ''} locked in the escrow contract`;
+    req.history[0] = {k:'hist.sentChain', v:{amt:fmtDeal(req, chain.amount), dep:BigInt(chain.deposit) > 0n ? fmtDeal(req, chain.deposit) : ''}, at:req.history[0].at};
   }
   state.requests.push(req);
   save();
   resetRequestForm();
-  toast(onChain ? `Paid into escrow — ${trip.traveler} can now accept` : `Request sent to ${trip.traveler}`);
+  const name = trip.mine ? t('pay.theTraveler') : travelerName(trip);
+  toast(onChain ? t('toast.paidEscrow', {name}) : t('toast.sent', {name}));
   if(onChain) syncDeal(req).catch(() => {});
   else scheduleAutoAccept(req.id);
   showView('dashboard');
@@ -303,8 +308,8 @@ function scheduleAutoAccept(id){
     const req = reqById(id);
     if(!req || req.status !== 'pending' || req.chain) return;
     const trip = tripById(req.tripId);
-    setStatus(req, 'escrow', `Accepted — €${req.price} locked in escrow`);
-    toast(`${trip.traveler} accepted “${req.item}” — €${req.price} is in escrow`);
+    setStatus(req, 'escrow', 'hist.accepted', {price:req.price});
+    toast(t('toast.autoAccepted', {name:travelerName(trip), item:req.item, price:fmtNum(req.price)}));
     renderAll();
   }, 5000);
 }
@@ -316,10 +321,10 @@ function submitTrip(){
   const capacity = parseInt($('lt-capacity').value, 10);
   const categories = [...document.querySelectorAll('.cat-chip.on')].map(c => c.dataset.cat);
   const err = $('lt-error');
-  if(!code){ err.textContent = 'Pick a departure city.'; return; }
-  if(!date || daysFromToday(date) < 0){ err.textContent = 'Pick a travel date from today onwards.'; return; }
-  if(!(capacity >= 1 && capacity <= 5)){ err.textContent = 'You can carry between 1 and 5 items.'; return; }
-  if(!categories.length){ err.textContent = 'Choose at least one category.'; return; }
+  if(!code){ err.textContent = t('lt.errCity'); return; }
+  if(!date || daysFromToday(date) < 0){ err.textContent = t('lt.errDate'); return; }
+  if(!(capacity >= 1 && capacity <= 5)){ err.textContent = t('lt.errCap'); return; }
+  if(!categories.length){ err.textContent = t('lt.errCats'); return; }
   err.textContent = '';
   state.trips.push({id:uid('t'), code, date, traveler:'You', capacity, categories, notes:$('lt-notes').value.trim(), mine:true, rating:0, completed:0,
     wallet:chainReady() ? wallet.account : null});
@@ -335,9 +340,8 @@ function progress(step){
   return `<div class="progress-track">${[1,2,3,4].map(i => `<div class="${i <= step ? 'on' : ''}"></div>`).join('')}</div>`;
 }
 function statusBadge(req, incoming){
-  const s = STATUS[req.status];
-  const label = incoming && req.status === 'pending' ? 'Needs your reply' : s.label;
-  return `<span class="status ${s.cls}">${label}</span>`;
+  const label = incoming && req.status === 'pending' ? t('status.needsReply') : t('status.' + req.status);
+  return `<span class="status ${STATUS[req.status].cls}">${label}</span>`;
 }
 
 function renderDashboard(){
@@ -347,57 +351,55 @@ function renderDashboard(){
   const incomingActive = incoming.filter(r => ACTIVE.includes(r.status)).length;
   const needsReply = incoming.filter(r => r.status === 'pending').length;
   const active = sent.filter(r => ACTIVE.includes(r.status)).length + incomingActive;
-  $('dash-count').textContent = `${active} active` + (needsReply ? ` · ${needsReply} need${needsReply === 1 ? 's' : ''} your reply` : '');
+  $('dash-count').textContent = t('dash.count', {active, reply:needsReply});
   const sum = (list, status) => list.filter(r => r.status === status).reduce((s, r) => s + r.price, 0);
-  $('dash-escrow').textContent = `€${sum(sent, 'escrow') + sum(sent, 'disputed')}`;
-  $('dash-waiting').textContent = `€${sum(sent, 'pending')}`;
-  $('dash-earned').textContent = `€${sum(incoming, 'completed')}`;
+  $('dash-escrow').textContent = eur(sum(sent, 'escrow') + sum(sent, 'disputed'));
+  $('dash-waiting').textContent = eur(sum(sent, 'pending'));
+  $('dash-earned').textContent = eur(sum(incoming, 'completed'));
 
+  const b = (act, id, label, cls) => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${id}">${label}</button>`;
   $('dash-sent').innerHTML = sent.length ? sent.map(r => {
     const trip = tripById(r.tripId);
     let actions = '';
     if(r.chain) actions = chainButtons(r, 'buyer');
-    else if(r.status === 'pending') actions = `<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${r.id}">Cancel request</button>`;
-    else if(r.status === 'escrow') actions = `<button class="btn btn-sm btn-primary" data-act="confirm" data-id="${r.id}">Confirm received</button>
-      <button class="btn btn-sm btn-ghost" data-act="dispute" data-id="${r.id}">Raise a dispute</button>`;
-    else if(r.status === 'disputed') actions = `<button class="btn btn-sm btn-ghost" data-act="dispute" data-id="${r.id}">View dispute</button>`;
+    else if(r.status === 'pending') actions = b('cancel', r.id, t('btn.cancelRequest'), 'btn-ghost');
+    else if(r.status === 'escrow') actions = b('confirm', r.id, t('btn.confirm'), 'btn-primary') + b('dispute', r.id, t('btn.dispute'), 'btn-ghost');
+    else if(r.status === 'disputed') actions = b('dispute', r.id, t('btn.viewDispute'), 'btn-ghost');
     return `
       <div class="dash-item">
         <div class="dash-item-top"><b>${esc(r.item)}</b>${statusBadge(r)}</div>
-        <p class="dash-sub">${esc(trip.traveler)} · ${esc(trip.code)} → IST · ${fmtDay(trip.date)} · €${r.price}</p>
+        <p class="dash-sub">${esc(travelerName(trip))} · ${esc(trip.code)} → IST · ${fmtDay(trip.date)} · ${eur(r.price)}</p>
         ${r.chain ? chainItemMeta(r) : ''}
         ${progress(STATUS[r.status].step)}
         ${r.chain && chainHint(r, 'buyer') ? `<div class="form-hint">${chainHint(r, 'buyer')}</div>` : ''}
         ${actions ? `<div class="dash-actions">${actions}</div>` : ''}
       </div>`;
-  }).join('') : `<div class="empty">No requests yet. <span class="link" onclick="showView('browse')">Explore trips →</span></div>`;
+  }).join('') : `<div class="empty">${t('dash.noRequests')} <span class="link" onclick="showView('browse')">${t('dash.explore')}</span></div>`;
 
-  $('dash-carrying').innerHTML = myTrips.length ? myTrips.map(t => {
-    const reqs = tripRequests(t).filter(r => r.status !== 'cancelled');
+  $('dash-carrying').innerHTML = myTrips.length ? myTrips.map(tr => {
+    const reqs = tripRequests(tr).filter(r => r.status !== 'cancelled');
     const payout = reqs.filter(r => r.status === 'completed').reduce((s, r) => s + r.price, 0);
-    const payTo = t.wallet ? `<div class="side-row"><span>Payouts to</span><b>${esc(shortAddr(t.wallet))}</b></div>` : '';
-    const past = !isUpcoming(t);
+    const payTo = tr.wallet ? `<div class="side-row"><span>${t('dash.payoutsTo')}</span><b>${esc(shortAddr(tr.wallet))}</b></div>` : '';
+    const past = !isUpcoming(tr);
     const hasPending = reqs.some(r => r.status === 'pending');
     return `
       <div class="dash-item ${hasPending ? 'mine-active' : ''}">
-        <div class="dash-item-top"><b>${esc(t.code)} ✈ IST <span class="muted">· ${fmtDay(t.date)}</span></b>
-          <span class="status ${past ? 'done' : 'muted'}">${past ? 'Completed' : `${slotsLeft(t)} of ${t.capacity} free`}</span></div>
-        <div class="side-row"><span>Allowance used</span><b>€${allowanceUsed(t)} / €${LIMIT}</b></div>
+        <div class="dash-item-top"><b>${esc(tr.code)} ✈ IST <span class="muted">· ${fmtDay(tr.date)}</span></b>
+          <span class="status ${past ? 'done' : 'muted'}">${past ? t('trip.completed') : t('trip.free', {left:slotsLeft(tr), cap:tr.capacity})}</span></div>
+        <div class="side-row"><span>${t('dash.allowanceUsed')}</span><b>${eur(allowanceUsed(tr))} / ${eur(LIMIT)}</b></div>
         ${payTo}
-        ${payout ? `<div class="side-row"><span>Payout</span><b style="color:var(--green)">€${payout} released</b></div>` : ''}
+        ${payout ? `<div class="side-row"><span>${t('dash.payout')}</span><b style="color:var(--green)">${t('dash.released', {n:fmtNum(payout)})}</b></div>` : ''}
         ${reqs.length ? reqs.map(r => `
           <div class="incoming ${r.status === 'pending' ? '' : 'quiet'}">
-            <div class="dash-item-top"><span>${esc(r.item)} <span class="muted">€${r.price} · ${esc(r.buyer)}</span></span>${statusBadge(r, true)}</div>
+            <div class="dash-item-top"><span>${esc(r.item)} <span class="muted">${eur(r.price)} · ${esc(buyerName(r))}</span></span>${statusBadge(r, true)}</div>
             ${r.chain ? `${chainItemMeta(r)}
               ${chainHint(r, 'traveler') ? `<div class="form-hint">${chainHint(r, 'traveler')}</div>` : ''}
               ${chainButtons(r, 'traveler') ? `<div class="dash-actions">${chainButtons(r, 'traveler')}</div>` : ''}` : `
-            ${r.status === 'pending' ? `<div class="dash-actions">
-              <button class="btn btn-sm btn-primary" data-act="accept" data-id="${r.id}">Accept</button>
-              <button class="btn btn-sm btn-ghost" data-act="decline" data-id="${r.id}">Decline</button></div>` : ''}
-            ${r.status === 'escrow' ? `<div class="form-hint">Funds are held — released when ${esc(r.buyer)} confirms delivery.</div>` : ''}`}
-          </div>`).join('') : '<div class="form-hint">No requests yet.</div>'}
+            ${r.status === 'pending' ? `<div class="dash-actions">${b('accept', r.id, t('btn.accept'), 'btn-primary')}${b('decline', r.id, t('btn.decline'), 'btn-ghost')}</div>` : ''}
+            ${r.status === 'escrow' ? `<div class="form-hint">${t('dash.heldHint', {name:esc(buyerName(r))})}</div>` : ''}`}
+          </div>`).join('') : `<div class="form-hint">${t('dash.noRequests')}</div>`}
       </div>`;
-  }).join('') : `<div class="empty">You haven't listed a trip. <span class="link" onclick="showView('list-trip')">List one →</span></div>`;
+  }).join('') : `<div class="empty">${t('dash.noTrip')} <span class="link" onclick="showView('list-trip')">${t('dash.listOne')}</span></div>`;
 }
 
 function handleDashAction(act, id){
@@ -410,45 +412,34 @@ function handleDashAction(act, id){
   if(act === 'receipt'){ openReceiptDialog(req); return; }
   if(act === 'view-receipt'){ openReceiptViewer(req); return; }
   if(req.chain){
-    chainAction(req, act).then(ok => ok && toast(CHAIN_DONE[act] || 'Done — the contract is updated'));
+    chainAction(req, act).then(ok => ok && toast(STRINGS.en['done.' + act] ? t('done.' + act) : t('done.default')));
     return;
   }
-  if(act === 'cancel'){ setStatus(req, 'cancelled', 'Request cancelled by buyer'); toast('Request cancelled'); }
-  if(act === 'confirm'){ setStatus(req, 'completed', `Buyer confirmed delivery — €${req.price} released`); toast(`Delivery confirmed — €${req.price} released to the traveler`); }
-  if(act === 'accept'){ setStatus(req, 'escrow', `Accepted — €${req.price} locked in escrow`); toast(`Accepted — €${req.price} is now in escrow`); }
-  if(act === 'decline'){ setStatus(req, 'declined', 'Declined by traveler'); toast('Request declined'); }
+  const price = fmtNum(req.price);
+  if(act === 'cancel'){ setStatus(req, 'cancelled', 'hist.cancelled'); toast(t('toast.cancelled')); }
+  if(act === 'confirm'){ setStatus(req, 'completed', 'hist.confirmed', {price}); toast(t('toast.confirmed', {price})); }
+  if(act === 'accept'){ setStatus(req, 'escrow', 'hist.accepted', {price}); toast(t('toast.accepted', {price})); }
+  if(act === 'decline'){ setStatus(req, 'declined', 'hist.declined'); toast(t('toast.declined')); }
   renderAll();
 }
-
-const CHAIN_DONE = {
-  cancel:'Cancelled — the contract refunded you',
-  decline:'Declined — the buyer was refunded by the contract',
-  accept:'Accepted — the funds stay locked until delivery',
-  deliver:'Marked delivered — the buyer has 7 days to confirm or dispute',
-  confirm:'Confirmed — the contract paid the traveler',
-  'claim-pay':'Payment claimed — check your wallet',
-  'claim-refund':'Refund claimed — check your wallet',
-};
 
 // ---------- Dispute ----------
 function renderDispute(){
   const req = reqById(state.disputeId);
   if(!req) return;
-  const s = STATUS[req.status];
-  $('dispute-title').textContent = `Dispute — ${req.item}`;
-  $('dispute-status').className = `status ${s.cls}`;
-  $('dispute-status').textContent = req.status === 'disputed' ? (req.chain ? 'Funds frozen' : 'Under review') : s.label;
+  $('dispute-title').textContent = t('dispute.titleFor', {item:req.item});
+  $('dispute-status').className = `status ${STATUS[req.status].cls}`;
+  $('dispute-status').textContent = req.status === 'disputed' ? (req.chain ? t('dispute.frozen') : t('dispute.review')) : t('status.' + req.status);
 
-  const items = req.history.map(h => ({label:h.label, sub:fmtStamp(h.at), cls:'done'}));
+  const items = req.history.map(h => ({label:histLabel(h), sub:fmtStamp(h.at), cls:'done'}));
   if(req.status === 'escrow'){
-    items.push({label:'Dispute', sub:req.chain
-      ? `Opening one freezes the funds. If you can't agree a split within 30 days, it's settled 50/50 and your deposit goes to the traveler.` +
-        (req.deal?.status === 'Accepted' ? ` If the item simply never arrived, you can instead wait until ${fmtSecDay(req.deal.deliverBy)} and reclaim everything plus the traveler's deposit.` : '')
-      : 'Add your details below — funds stay locked until resolved', cls:'active'});
-    items.push({label:'Resolution', sub:'Funds released to traveler, or refunded to buyer', cls:''});
+    items.push({label:t('tl.dispute'), sub:req.chain
+      ? t('tl.disputeChain') + (req.deal?.status === 'Accepted' ? t('tl.disputeNoArrive', {date:fmtSecDay(req.deal.deliverBy)}) : '')
+      : t('tl.disputeDemo'), cls:'active'});
+    items.push({label:t('tl.resolution'), sub:t('tl.resolutionEscrow'), cls:''});
   } else if(req.status === 'disputed'){
     items[items.length - 1].cls = 'active';
-    items.push({label:'Resolution', sub:req.chain ? 'When you both propose the same split, or 50/50 after 30 days' : 'Typically within 2 business days', cls:''});
+    items.push({label:t('tl.resolution'), sub:req.chain ? t('tl.resolutionChain') : t('tl.resolutionDemo'), cls:''});
   }
   $('dispute-timeline').innerHTML = items.map(i =>
     `<div class="tl-item"><div class="tl-dot ${i.cls}"></div><div class="tl-body"><b>${esc(i.label)}</b><span>${esc(i.sub)}</span></div></div>`).join('');
@@ -462,27 +453,28 @@ async function submitDispute(){
   const req = reqById(state.disputeId);
   const desc = $('dispute-desc').value.trim();
   if(!req) return;
-  if(desc.length < 10){ $('dispute-error').textContent = 'Describe the issue in a sentence or two.'; return; }
+  if(desc.length < 10){ $('dispute-error').textContent = t('dispute.errDesc'); return; }
   $('dispute-error').textContent = '';
   req.dispute = {reason:$('dispute-reason').value, desc};
   if(req.chain){
     if(!await chainAction(req, 'dispute')) return;
     $('dispute-desc').value = '';
-    toast('Dispute opened — the funds are frozen until you agree on a split');
+    toast(t('toast.disputeChain'));
     return;
   }
-  setStatus(req, 'disputed', `Dispute raised — ${req.dispute.reason.toLowerCase()}`);
+  setStatus(req, 'disputed', 'hist.disputeRaised', {reason:req.dispute.reason});
   $('dispute-desc').value = '';
-  toast('Dispute submitted — funds stay locked while it is reviewed');
+  toast(t('toast.disputeDemo'));
   renderAll();
 }
 
 function resolveDispute(outcome){
   const req = reqById(state.disputeId);
   if(!req) return;
-  if(outcome === 'release') setStatus(req, 'completed', `Resolved — €${req.price} released to traveler`);
-  else setStatus(req, 'refunded', `Resolved — €${req.price} refunded to buyer`);
-  toast('Dispute resolved');
+  const price = fmtNum(req.price);
+  if(outcome === 'release') setStatus(req, 'completed', 'hist.resolvedRelease', {price});
+  else setStatus(req, 'refunded', 'hist.resolvedRefund', {price});
+  toast(t('toast.resolved'));
   renderAll();
 }
 
@@ -506,13 +498,28 @@ function resetDemo(){
   save();
   showView('home');
   scheduleSeedAccepts();
-  toast('Demo data reset');
+  toast(t('toast.reset'));
 }
 
-$('lt-city').innerHTML = '<option value="">Choose a city</option>' +
-  Object.entries(CITIES).map(([code, c]) => `<option value="${code}">${c.city} (${code})</option>`).join('');
+// Form controls built from data: rebuilt when the language changes, keeping what was picked
+function renderFormOptions(){
+  const city = $('lt-city').value;
+  $('lt-city').innerHTML = `<option value="">${t('lt.chooseCity')}</option>` +
+    Object.entries(CITIES).map(([code, c]) => `<option value="${code}">${(LANG === 'tr' && c.tr) || c.city} (${code})</option>`).join('');
+  $('lt-city').value = city;
+  const picked = new Set([...document.querySelectorAll('.cat-chip.on')].map(c => c.dataset.cat));
+  $('lt-categories').innerHTML = CATEGORIES.map(c =>
+    `<button type="button" class="cat-chip${picked.has(c) ? ' on' : ''}" data-cat="${c}">${esc(catName(c))}</button>`).join('');
+}
+
+function onLangChange(){
+  renderFormOptions();
+  renderAll();
+}
+
+applyStatic();
+renderFormOptions();
 $('lt-date').min = localDate();
-$('lt-categories').innerHTML = CATEGORIES.map(c => `<button type="button" class="cat-chip" data-cat="${c}">${c === 'General' ? 'Gifts & general' : c}</button>`).join('');
 
 document.querySelectorAll('[data-view]').forEach(t => t.addEventListener('click', () => showView(t.dataset.view)));
 $('search').addEventListener('input', e => {
@@ -520,13 +527,13 @@ $('search').addEventListener('input', e => {
   if(!$('view-browse').classList.contains('active')) showView('browse');
   else renderTrips();
 });
-document.querySelectorAll('[data-cat-tile]').forEach(t => t.addEventListener('click', () => {
-  searchTerm = $('search').value = t.dataset.catTile;
+document.querySelectorAll('[data-cat-tile]').forEach(tile => tile.addEventListener('click', () => {
+  searchTerm = $('search').value = catName(tile.dataset.catTile);
   state.filter = 'all';
   showView('browse');
 }));
 document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { state.filter = c.dataset.filter; save(); renderTrips(); }));
-document.querySelectorAll('.cat-chip').forEach(c => c.addEventListener('click', () => c.classList.toggle('on')));
+$('lt-categories').addEventListener('click', e => { const chip = e.target.closest('.cat-chip'); if(chip) chip.classList.toggle('on'); });
 $('trip-grid').addEventListener('click', e => { const card = e.target.closest('[data-trip]'); if(card) openTrip(card.dataset.trip); });
 $('view-dashboard').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if(b) handleDashAction(b.dataset.act, b.dataset.id); });
 

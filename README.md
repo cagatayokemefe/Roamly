@@ -16,6 +16,8 @@ Payments can run through a **smart contract on BNB Smart Chain**: the buyer's mo
 - **Ratings** — after an on-chain deal ends, buyer and traveler rate each other (1–5 stars + a short comment). Ratings live in the contract, so they can't be faked, edited or deleted, and traveler profiles show the on-chain average.
 - **Disputes** — on-chain, buyer and traveler each propose a split and the contract pays out when they match; demo requests are resolved by playing the reviewer.
 
+- **Turkish and English** — a TR | EN switch in the header; the first visit follows the browser's language and the choice is remembered. Dates and numbers are formatted for the chosen language.
+
 App data is saved in the browser's `localStorage`. Use **Reset demo data** in the footer to restore the sample trips.
 
 ## How the escrow contract works
@@ -83,6 +85,7 @@ Then add the network *Hardhat Local* (RPC `http://127.0.0.1:8545`, chain id `313
 | `index.html` | Page layout and all views |
 | `styles.css` | The "Nature Explorer" design: forest green, cream and sand |
 | `app.js` | State, rendering and every flow (trips, requests, allowance, escrow, disputes) |
+| `i18n.js` | All interface text in English and Turkish, and the language switch |
 | `chain.js` | MetaMask connection and calls to the escrow contract |
 | `contracts/RoamlyEscrow.sol` | The escrow smart contract |
 | `contracts/TestUSDT.sol` | Free test token with a faucet, for testnets |
