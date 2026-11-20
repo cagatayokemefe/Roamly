@@ -442,6 +442,38 @@
   </form>
 </dialog>
 
+<dialog class="rate-dialog" id="receipt-dialog" aria-labelledby="receipt-title">
+  <form method="dialog" onsubmit="event.preventDefault(); submitReceipt();">
+    <h2 class="sub-title" id="receipt-title">Attach the receipt</h2>
+    <p class="form-hint"><span id="receipt-item"></span> · The photo stays in this browser. Its fingerprint, the total and the date are saved on-chain for good, so the receipt can't be swapped later.</p>
+    <label class="receipt-drop" for="receipt-file">
+      <img id="receipt-preview" alt="Receipt preview" hidden>
+      <span id="receipt-drop-text">Take or choose a photo of the receipt</span>
+    </label>
+    <input type="file" id="receipt-file" accept="image/*" onchange="onReceiptFile(this)" hidden>
+    <div class="form-group">
+      <label for="receipt-total">Receipt total (€)</label>
+      <input type="number" id="receipt-total" min="0.01" step="0.01" placeholder="0.00">
+      <span class="form-hint">Convert to euros if the shop used another currency.</span>
+    </div>
+    <div class="form-error" id="receipt-error"></div>
+    <div class="dash-actions">
+      <button type="submit" class="btn btn-sm btn-primary">Save receipt</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="$('receipt-dialog').close()">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="rate-dialog" id="receipt-view" aria-labelledby="rv-title">
+  <h2 class="sub-title" id="rv-title">Receipt</h2>
+  <p class="form-hint" id="rv-meta"></p>
+  <img class="receipt-img" id="rv-img" alt="Receipt photo" hidden>
+  <p class="rv-check" id="rv-check"></p>
+  <div class="dash-actions">
+    <button type="button" class="btn btn-sm btn-primary" onclick="$('receipt-view').close()">Done</button>
+  </div>
+</dialog>
+
 <dialog class="rate-dialog" id="rate-dialog" aria-labelledby="rate-title">
   <form method="dialog" onsubmit="event.preventDefault(); submitRating();">
     <h2 class="sub-title" id="rate-title">Rate the traveler</h2>

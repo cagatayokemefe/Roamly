@@ -407,6 +407,8 @@ function handleDashAction(act, id){
   if(act === 'rate'){ openRateDialog(req); return; }
   if(act === 'show-code'){ openCodeDialog(req); return; }
   if(act === 'enter-code'){ openEntryDialog(req); return; }
+  if(act === 'receipt'){ openReceiptDialog(req); return; }
+  if(act === 'view-receipt'){ openReceiptViewer(req); return; }
   if(req.chain){
     chainAction(req, act).then(ok => ok && toast(CHAIN_DONE[act] || 'Done — the contract is updated'));
     return;

@@ -358,3 +358,15 @@ body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 .code-input{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;text-transform:uppercase;}
 .scan-box{width:100%;margin:12px 0;border-radius:16px;overflow:hidden;}
 #entry-dialog .btn-block{margin:12px 0 4px;}
+
+/* ---------- Receipts ---------- */
+.receipt-line{margin:4px 0 0;font-size:13px;color:#4C5249;}
+.receipt-line .warn{color:var(--red-text);font-weight:700;}
+.receipt-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:120px;margin:16px 0;padding:16px;border:2px dashed var(--field);border-radius:16px;background:var(--cream);color:var(--muted);font-size:14px;font-weight:600;text-align:center;cursor:pointer;}
+.receipt-drop:hover{border-color:var(--green);}
+.receipt-drop img{max-width:100%;max-height:220px;border-radius:10px;}
+.receipt-img{display:block;max-width:100%;max-height:60vh;margin:12px auto;border-radius:12px;border:1px solid var(--line);}
+.receipt-img[hidden]{display:none;}
+.rv-check{font-size:14px;font-weight:600;color:var(--muted);}
+.rv-check.ok{color:var(--green);}
+.rv-check.bad{color:var(--red-text);}

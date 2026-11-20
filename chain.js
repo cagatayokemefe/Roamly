@@ -46,6 +46,8 @@ const NETWORKS = {
 const ESCROW_ABI = [
   'function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref, bytes32 codeHash) returns (uint256)',
   'function confirmWithCode(uint256 id, string code)',
+  'function attachReceipt(uint256 id, bytes32 hash, uint32 totalCents)',
+  'function receipts(uint256) view returns (bytes32 hash, uint32 totalCents, uint64 attachedAt)',
   'function cancel(uint256 id)',
   'function accept(uint256 id)',
   'function decline(uint256 id)',
@@ -63,7 +65,7 @@ const ESCROW_ABI = [
   'function reputation(address) view returns (uint64 count, uint64 totalStars)',
   'event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref)',
   'error InvalidParams()', 'error NotBuyer()', 'error NotTraveler()', 'error NotParty()',
-  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()', 'error WrongCode()',
+  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()', 'error WrongCode()', 'error AlreadyAttached()',
 ];
 const TOKEN_ABI = [
   'function balanceOf(address) view returns (uint256)',
@@ -87,6 +89,7 @@ const CHAIN_ERRORS = {
   InvalidParams:'The contract rejected these details.',
   AlreadyRated:'You’ve already rated this deal — ratings can’t be changed.',
   WrongCode:'That code doesn’t match — check it with the buyer.',
+  AlreadyAttached:'A receipt is already attached to this deal — it can’t be replaced.',
 };
 const CHAIN_ACTIONS = {
   cancel:        {fn:'cancel',          pending:'Cancelling and refunding'},
@@ -101,6 +104,7 @@ const CHAIN_ACTIONS = {
   settle:        {fn:'settleStalemate', pending:'Settling 50/50'},
   rate:          {fn:'rate',            pending:'Saving your rating on-chain'},
   code:          {fn:'confirmWithCode', pending:'Checking the code and releasing payment'},
+  receipt:       {fn:'attachReceipt',   pending:'Saving the receipt fingerprint on-chain'},
 };
 
 const FINAL_DEALS = ['Released','Refunded','Split'];
@@ -322,6 +326,14 @@ async function syncDeal(req){
     reviewsChanged = JSON.stringify(reviews) !== JSON.stringify(req.reviews);
     req.reviews = reviews;
   }
+  // A receipt can only be attached once, so stop asking after we've seen it
+  if(d.accepted && !req.receipt){
+    const rc = await wallet.escrow.receipts(req.chain.dealId);
+    if(rc.hash !== ethers.ZeroHash){
+      req.receipt = {hash:rc.hash, totalCents:Number(rc.totalCents), attachedAt:Number(rc.attachedAt)};
+      reviewsChanged = true;
+    }
+  }
   if(prev === s){ save(); return reviewsChanged; }
   const next = appStatusFor(req, s);
   const label = chainHistoryLabel(req, s);
@@ -428,6 +440,115 @@ async function submitRating(){
     renderAll();
     toast('Thanks — your rating is saved on-chain');
   }
+}
+
+// ---------- Receipts ----------
+// The photo stays in this browser; the contract keeps its keccak256 hash, the total and the time,
+// so anyone holding the photo can prove it's the one the traveler attached.
+const RECEIPT_MAX_PX = 1024;
+let receiptTarget = null, receiptDraft = null;
+
+const fmtEur = cents => `€${(cents / 100).toFixed(2)}`;
+function dataUrlBytes(dataUrl){
+  const bin = atob(dataUrl.split(',')[1]);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+const receiptHash = dataUrl => ethers.keccak256(dataUrlBytes(dataUrl));
+
+// Shrink the photo to a JPEG that fits comfortably in browser storage
+async function compressImage(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Not an image'));
+      i.src = url;
+    });
+    const scale = Math.min(1, RECEIPT_MAX_PX / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.75);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function receiptLine(req){
+  const r = req.receipt;
+  if(!r) return '';
+  const over = r.totalCents - Math.round(req.price * 100);
+  return `<p class="receipt-line">🧾 Receipt ${fmtEur(r.totalCents)} · ${fmtSecDay(r.attachedAt)}` +
+    (over > 0 ? ` · <span class="warn">${fmtEur(over)} above the agreed €${req.price}</span>` : '') + `</p>`;
+}
+
+function openReceiptDialog(req){
+  receiptTarget = req.id;
+  receiptDraft = null;
+  $('receipt-item').textContent = req.item;
+  $('receipt-file').value = '';
+  $('receipt-total').value = '';
+  $('receipt-preview').hidden = true;
+  $('receipt-drop-text').textContent = 'Take or choose a photo of the receipt';
+  $('receipt-error').textContent = '';
+  $('receipt-dialog').showModal();
+}
+
+async function onReceiptFile(input){
+  const file = input.files?.[0];
+  if(!file) return;
+  $('receipt-error').textContent = '';
+  try {
+    receiptDraft = await compressImage(file);
+    $('receipt-preview').src = receiptDraft;
+    $('receipt-preview').hidden = false;
+    $('receipt-drop-text').textContent = 'Tap to choose a different photo';
+  } catch {
+    receiptDraft = null;
+    $('receipt-error').textContent = 'That file isn’t an image we can read — try a JPEG or PNG photo.';
+  }
+}
+
+async function submitReceipt(){
+  const req = reqById(receiptTarget);
+  const total = parseFloat($('receipt-total').value);
+  if(!req) return;
+  if(!receiptDraft){ $('receipt-error').textContent = 'Add a photo of the receipt.'; return; }
+  if(!(total > 0)){ $('receipt-error').textContent = 'Enter the receipt total in euros.'; return; }
+  // Make sure the photo fits in browser storage before saving its fingerprint for good
+  req.receiptImage = receiptDraft;
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  catch {
+    delete req.receiptImage;
+    $('receipt-error').textContent = 'This browser’s storage is full, so the photo couldn’t be kept. Try a smaller photo.';
+    return;
+  }
+  $('receipt-dialog').close();
+  const ok = await chainAction(req, 'receipt', receiptHash(receiptDraft), Math.round(total * 100));
+  if(!ok){ delete req.receiptImage; save(); return; }
+  toast('Receipt attached — its fingerprint is saved on-chain');
+}
+
+function openReceiptViewer(req){
+  const r = req.receipt;
+  if(!r) return;
+  $('rv-meta').textContent = `${req.item} · total ${fmtEur(r.totalCents)} · attached ${fmtSecDay(r.attachedAt)}`;
+  const img = $('rv-img'), check = $('rv-check');
+  img.hidden = !req.receiptImage;
+  if(req.receiptImage) img.src = req.receiptImage;
+  if(!req.receiptImage){
+    check.className = 'rv-check';
+    check.textContent = 'The photo isn’t stored in this browser — only its fingerprint is on-chain.';
+  } else if(receiptHash(req.receiptImage) === r.hash){
+    check.className = 'rv-check ok';
+    check.textContent = '✓ This photo matches the fingerprint saved on-chain, so it hasn’t been changed since.';
+  } else {
+    check.className = 'rv-check bad';
+    check.textContent = '⚠ This photo does NOT match the fingerprint saved on-chain.';
+  }
+  $('receipt-view').showModal();
 }
 
 // ---------- Delivery code ----------
@@ -560,7 +681,7 @@ function chainItemMeta(req){
   const last = req.chain.txs[req.chain.txs.length - 1];
   const deposit = BigInt(req.chain.deposit || 0);
   const depText = deposit > 0n ? ` + ${esc(fmtDeal(req, deposit))} deposit${req.deal?.accepted ? ' each' : ''}` : '';
-  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))}${depText} in contract · ${txLink(req.chain.chainId, last)}</p>${reviewLines(req)}`;
+  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))}${depText} in contract · ${txLink(req.chain.chainId, last)}</p>${receiptLine(req)}${reviewLines(req)}`;
 }
 
 function chainHint(req, side){
@@ -606,6 +727,8 @@ function chainButtons(req, side){
     if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('claim-pay', 'Claim payment', 'btn-primary'));
   }
   if(d.status === 'Disputed') out.push(b('dispute', 'View dispute'));
+  if(req.receipt) out.push(b('view-receipt', '🧾 View receipt'));
+  else if(side === 'traveler' && ['Accepted','Delivered','Disputed'].includes(d.status)) out.push(b('receipt', '🧾 Attach receipt'));
   if(canRate(req, side)) out.push(b('rate', side === 'buyer' ? '★ Rate the traveler' : '★ Rate the buyer', 'btn-sand'));
   return out.join('');
 }

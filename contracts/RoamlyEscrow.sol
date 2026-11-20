@@ -26,6 +26,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///     - deadline passes without delivery → the traveler's deposit goes to the buyer
 ///     - dispute ends in the 30-day 50/50 → the buyer's deposit goes to the traveler
 ///   The fee is never taken from deposits.
+///   The traveler can attach their shop receipt once (while the deal is running): the photo stays
+///   off-chain, the contract stores its hash, the receipt total in euro cents and the time.
 ///   Once an accepted deal ends (paid, refunded or split), buyer and traveler can each rate the other
 ///   once: 1–5 stars and a short comment. Only real deals can be rated, so reviews can't be faked.
 contract RoamlyEscrow is ReentrancyGuard {
@@ -61,6 +63,12 @@ contract RoamlyEscrow is ReentrancyGuard {
         string comment;
     }
 
+    struct Receipt {
+        bytes32 hash;        // keccak256 of the receipt photo; 0 = none attached
+        uint32 totalCents;   // receipt total in euro cents, as entered by the traveler
+        uint64 attachedAt;
+    }
+
     struct Reputation {
         uint64 count;
         uint64 totalStars;
@@ -76,6 +84,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     mapping(uint256 => Review) private _buyerReviews;    // written by the buyer, about the traveler
     mapping(uint256 => Review) private _travelerReviews; // written by the traveler, about the buyer
     mapping(address => Reputation) public reputation;
+    mapping(uint256 => Receipt) public receipts;
 
     event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref);
     event DealAccepted(uint256 indexed id);
@@ -86,6 +95,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     event DisputeOpened(uint256 indexed id);
     event SplitProposed(uint256 indexed id, address indexed by, uint256 toBuyer);
     event DisputeSettled(uint256 indexed id, uint256 toBuyer, uint256 toTraveler, uint256 fee);
+    event ReceiptAttached(uint256 indexed id, bytes32 hash, uint32 totalCents);
     event Rated(uint256 indexed id, address indexed from, address indexed to, uint8 stars, string comment);
 
     error InvalidParams();
@@ -97,6 +107,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     error TooLate();
     error AlreadyRated();
     error WrongCode();
+    error AlreadyAttached();
 
     constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_, uint16 depositBps_) {
         if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS || depositBps_ > MAX_DEPOSIT_BPS) revert InvalidParams();
@@ -201,6 +212,20 @@ contract RoamlyEscrow is ReentrancyGuard {
         d.status = Status.Delivered;
         d.deliveredAt = uint64(block.timestamp);
         emit DealDelivered(id);
+    }
+
+    /// @notice Record the shop receipt: its photo's hash and total. Once per deal, so it can't be swapped later.
+    function attachReceipt(uint256 id, bytes32 hash, uint32 totalCents) external {
+        Deal storage d = _deals[id];
+        if (msg.sender != d.traveler) revert NotTraveler();
+        if (d.status != Status.Accepted && d.status != Status.Delivered && d.status != Status.Disputed) revert WrongStatus(d.status);
+        if (hash == bytes32(0) || totalCents == 0) revert InvalidParams();
+        Receipt storage r = receipts[id];
+        if (r.hash != bytes32(0)) revert AlreadyAttached();
+        r.hash = hash;
+        r.totalCents = totalCents;
+        r.attachedAt = uint64(block.timestamp);
+        emit ReceiptAttached(id, hash, totalCents);
     }
 
     // ---------- Timeouts (anyone can trigger; funds only go where the rules say) ----------

@@ -266,6 +266,33 @@ describe('RoamlyEscrow', () => {
     });
   });
 
+  describe('receipts', () => {
+    const PHOTO = ethers.id('receipt-photo-bytes');
+    it('traveler attaches the receipt hash and total once', async () => {
+      const f = await loadFixture(accepted);
+      await expect(f.escrow.connect(f.traveler).attachReceipt(f.id, PHOTO, 9550))
+        .to.emit(f.escrow, 'ReceiptAttached').withArgs(f.id, PHOTO, 9550);
+      const r = await f.escrow.receipts(f.id);
+      expect([r.hash, r.totalCents]).to.deep.equal([PHOTO, 9550n]);
+      expect(r.attachedAt).to.equal(await time.latest());
+      await expect(f.escrow.connect(f.traveler).attachReceipt(f.id, ethers.id('other'), 1)).to.be.revertedWithCustomError(f.escrow, 'AlreadyAttached');
+    });
+    it('can be attached after delivery or during a dispute', async () => {
+      const f = await loadFixture(disputed);
+      await f.escrow.connect(f.traveler).attachReceipt(f.id, PHOTO, 100);
+    });
+    it('only the traveler, only while the deal runs, and with real values', async () => {
+      const f = await loadFixture(accepted);
+      await expect(f.escrow.connect(f.buyer).attachReceipt(f.id, PHOTO, 1)).to.be.revertedWithCustomError(f.escrow, 'NotTraveler');
+      await expect(f.escrow.connect(f.traveler).attachReceipt(f.id, ethers.ZeroHash, 1)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(f.escrow.connect(f.traveler).attachReceipt(f.id, PHOTO, 0)).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      const g = await loadFixture(funded);
+      await expect(g.escrow.connect(g.traveler).attachReceipt(g.id, PHOTO, 1)).to.be.revertedWithCustomError(g.escrow, 'WrongStatus');
+      await f.escrow.connect(f.buyer).confirmDelivery(f.id);
+      await expect(f.escrow.connect(f.traveler).attachReceipt(f.id, PHOTO, 1)).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
+    });
+  });
+
   describe('ratings', () => {
     async function released(){
       const f = await delivered();
