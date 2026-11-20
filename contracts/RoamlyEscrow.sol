@@ -10,6 +10,13 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///         There is no owner, admin or arbiter: nobody can move a deal's funds except
 ///         by the rules below. The only cut is a fixed fee on what the traveler is paid.
 ///
+/// Marketplace data lives here too, so every user sees the same trips and requests:
+///   - travelers listTrip (city code, date, capacity, accepted categories, notes) and can closeTrip
+///   - anyone can setName (a display name for their wallet)
+///   - createDeal is a request on a trip, with the item details; the contract enforces the trip's
+///     capacity, its categories and Turkey's €430 personal allowance per trip (requests that end in
+///     a refund free their slot and allowance again)
+///
 /// Flow:
 ///   buyer createDeal ─▶ Funded ─ traveler accept ─▶ Accepted ─ traveler markDelivered ─▶ Delivered
 ///     Funded:    buyer cancel / traveler decline / deadline passes      → buyer refunded
@@ -38,6 +45,14 @@ contract RoamlyEscrow is ReentrancyGuard {
     uint64 public constant CONFIRM_WINDOW = 7 days;    // buyer's time to confirm or dispute after delivery
     uint64 public constant DISPUTE_WINDOW = 30 days;   // time to agree on a split before it goes 50/50
     uint256 public constant MAX_COMMENT_BYTES = 280;   // ~140 characters, allowing for Turkish letters
+    uint32 public constant MAX_ALLOWANCE_CENTS = 43_000; // Turkey's €430 personal duty-free allowance, per trip
+    uint64 public constant DELIVERY_GRACE = 14 days;   // traveler has until the trip date + 14 days to deliver
+    uint8 public constant MAX_CAPACITY = 5;
+    uint8 public constant ALL_CATEGORIES = 31;         // bits: 0 Electronics, 1 Clothing, 2 Cosmetics, 3 General, 4 Alcohol
+    uint256 public constant MAX_NAME_BYTES = 32;
+    uint256 public constant MAX_NOTES_BYTES = 280;
+    uint256 public constant MAX_ITEM_BYTES = 120;
+    uint256 public constant MAX_LINK_BYTES = 300;
 
     enum Status { None, Funded, Accepted, Delivered, Disputed, Released, Refunded, Split }
 
@@ -56,6 +71,26 @@ contract RoamlyEscrow is ReentrancyGuard {
         uint128 buyerDeposit;    // locked with the payment
         uint128 travelerDeposit; // locked on accept (same amount); 0 until then
         bytes32 codeHash;        // keccak256 of the buyer's secret delivery code; 0 = no code
+        uint256 tripId;
+    }
+
+    struct Trip {
+        address traveler;
+        uint64 date;         // travel day (unix time)
+        uint8 capacity;      // how many items they'll carry
+        uint8 categories;    // bitmask, see ALL_CATEGORIES
+        uint8 slotsUsed;     // requests holding a slot (everything except refunded ones)
+        bool closed;         // no new requests
+        uint32 centsUsed;    // euro cents of the allowance those requests use
+        string code;         // departure city code, e.g. "PRG"
+        string notes;
+    }
+
+    struct DealInfo {
+        string item;
+        string link;
+        uint8 category;      // bit index, see ALL_CATEGORIES
+        uint32 priceCents;   // item price in euro cents, counted against the allowance
     }
 
     struct Review {
@@ -86,7 +121,17 @@ contract RoamlyEscrow is ReentrancyGuard {
     mapping(address => Reputation) public reputation;
     mapping(uint256 => Receipt) public receipts;
 
-    event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref);
+    uint256 public tripCount;
+    mapping(uint256 => Trip) private _trips;
+    mapping(uint256 => DealInfo) private _dealInfo;
+    mapping(address => uint256[]) private _tripsOf;
+    mapping(address => uint256[]) private _dealsOf;     // deals where the address is buyer or traveler
+    mapping(address => string) public names;
+
+    event NameSet(address indexed who, string name);
+    event TripListed(uint256 indexed id, address indexed traveler);
+    event TripClosed(uint256 indexed id);
+    event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 tripId, uint256 amount);
     event DealAccepted(uint256 indexed id);
     event DealDelivered(uint256 indexed id);
     event CodeConfirmed(uint256 indexed id);
@@ -108,6 +153,10 @@ contract RoamlyEscrow is ReentrancyGuard {
     error AlreadyRated();
     error WrongCode();
     error AlreadyAttached();
+    error TripNotOpen();
+    error TripFull();
+    error OverAllowance();
+    error CategoryNotCarried();
 
     constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_, uint16 depositBps_) {
         if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS || depositBps_ > MAX_DEPOSIT_BPS) revert InvalidParams();
@@ -117,26 +166,77 @@ contract RoamlyEscrow is ReentrancyGuard {
         depositBps = depositBps_;
     }
 
+    // ---------- Profiles and trips ----------
+
+    /// @notice Set the name shown for your wallet (empty clears it).
+    function setName(string calldata name) external {
+        if (bytes(name).length > MAX_NAME_BYTES) revert InvalidParams();
+        names[msg.sender] = name;
+        emit NameSet(msg.sender, name);
+    }
+
+    /// @param date travel day as unix time; today is allowed (up to a day in the past, for time zones)
+    function listTrip(string calldata code, uint64 date, uint8 capacity, uint8 categories, string calldata notes) external returns (uint256 id) {
+        if (bytes(code).length != 3 || capacity == 0 || capacity > MAX_CAPACITY || categories == 0 || categories > ALL_CATEGORIES
+            || bytes(notes).length > MAX_NOTES_BYTES || uint256(date) + 1 days < block.timestamp) revert InvalidParams();
+        id = ++tripCount;
+        Trip storage t = _trips[id];
+        t.traveler = msg.sender;
+        t.date = date;
+        t.capacity = capacity;
+        t.categories = categories;
+        t.code = code;
+        t.notes = notes;
+        _tripsOf[msg.sender].push(id);
+        emit TripListed(id, msg.sender);
+    }
+
+    /// @notice Stop taking new requests on a trip. Requests already made carry on.
+    function closeTrip(uint256 id) external {
+        Trip storage t = _trips[id];
+        if (msg.sender != t.traveler) revert NotTraveler();
+        t.closed = true;
+        emit TripClosed(id);
+    }
+
     // ---------- Buyer ----------
 
-    /// @notice Lock `amount` tokens plus the buyer deposit for `traveler`.
+    /// @notice Request an item on a trip: locks `amount` tokens plus the buyer deposit.
     ///         Needs a prior token approve() of amount + depositFor(amount).
-    /// @param ref Off-chain request id, so the app can link the deal to its listing.
     /// @param codeHash keccak256 of a secret delivery code the buyer keeps (0 for none). The code must be
     ///        long and random (the app uses 80 bits): the hash is public, so a short code could be guessed.
-    function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref, bytes32 codeHash) external nonReentrant returns (uint256 id) {
-        if (traveler == address(0) || traveler == msg.sender || amount == 0 || deliverBy <= block.timestamp) revert InvalidParams();
+    /// @param category bit index of the item's category; the trip must accept it
+    /// @param priceCents the item's price in euro cents, counted against the trip's €430 allowance
+    function createDeal(uint256 tripId, uint128 amount, bytes32 codeHash, string calldata item, string calldata link, uint8 category, uint32 priceCents)
+        external nonReentrant returns (uint256 id)
+    {
+        Trip storage t = _trips[tripId];
+        if (t.traveler == address(0) || t.closed) revert TripNotOpen();
+        if (t.traveler == msg.sender || amount == 0 || priceCents == 0 || bytes(item).length == 0
+            || bytes(item).length > MAX_ITEM_BYTES || bytes(link).length > MAX_LINK_BYTES) revert InvalidParams();
+        if (category > 7 || t.categories & (uint8(1) << category) == 0) revert CategoryNotCarried();
+        if (t.slotsUsed >= t.capacity) revert TripFull();
+        if (uint256(t.centsUsed) + priceCents > MAX_ALLOWANCE_CENTS) revert OverAllowance();
+        uint64 deliverBy = t.date + DELIVERY_GRACE;
+        if (deliverBy <= block.timestamp) revert TooLate();
+        t.slotsUsed += 1;
+        t.centsUsed += priceCents;
+
         id = ++dealCount;
         Deal storage d = _deals[id];
         d.buyer = msg.sender;
-        d.traveler = traveler;
+        d.traveler = t.traveler;
         d.amount = amount;
         d.deliverBy = deliverBy;
         d.status = Status.Funded;
         d.buyerDeposit = uint128(depositFor(amount));
         d.codeHash = codeHash;
+        d.tripId = tripId;
+        _dealInfo[id] = DealInfo(item, link, category, priceCents);
+        _dealsOf[msg.sender].push(id);
+        _dealsOf[t.traveler].push(id);
         token.safeTransferFrom(msg.sender, address(this), uint256(amount) + d.buyerDeposit);
-        emit DealCreated(id, msg.sender, traveler, amount, deliverBy, ref);
+        emit DealCreated(id, msg.sender, t.traveler, tripId, amount);
     }
 
     /// @notice Withdraw a request the traveler hasn't accepted yet.
@@ -303,6 +403,31 @@ contract RoamlyEscrow is ReentrancyGuard {
         return _deals[id];
     }
 
+    function getDealInfo(uint256 id) external view returns (DealInfo memory) {
+        return _dealInfo[id];
+    }
+
+    function getTrip(uint256 id) external view returns (Trip memory) {
+        return _trips[id];
+    }
+
+    /// @notice Trips `from` .. `from + count - 1` (ids start at 1), cut off at the last trip.
+    function getTrips(uint256 from, uint256 count) external view returns (Trip[] memory list) {
+        if (from == 0 || from > tripCount) return new Trip[](0);
+        uint256 end = from + count - 1;
+        if (end > tripCount) end = tripCount;
+        list = new Trip[](end - from + 1);
+        for (uint256 i = from; i <= end; i++) list[i - from] = _trips[i];
+    }
+
+    function tripsOf(address who) external view returns (uint256[] memory) {
+        return _tripsOf[who];
+    }
+
+    function dealsOf(address who) external view returns (uint256[] memory) {
+        return _dealsOf[who];
+    }
+
     function feeFor(uint256 amount) public view returns (uint256) {
         return amount * feeBps / 10_000;
     }
@@ -321,6 +446,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     ///      deadline (traveler deposit forfeited), so the buyer gets everything locked.
     function _refund(uint256 id, Deal storage d) private {
         d.status = Status.Refunded;
+        _freeSlot(id, d);
         uint256 toBuyer = uint256(d.amount) + d.buyerDeposit + d.travelerDeposit;
         token.safeTransfer(d.buyer, toBuyer);
         emit DealRefunded(id, toBuyer);
@@ -337,11 +463,19 @@ contract RoamlyEscrow is ReentrancyGuard {
     function _settle(uint256 id, Deal storage d, uint256 toBuyer, bool stalemate) private {
         uint256 toTraveler = d.amount - toBuyer;
         d.status = toBuyer == d.amount ? Status.Refunded : toBuyer == 0 ? Status.Released : Status.Split;
+        if (d.status == Status.Refunded) _freeSlot(id, d);
         uint256 buyerGets = toBuyer + (stalemate ? 0 : d.buyerDeposit);
         uint256 travelerExtra = d.travelerDeposit + (stalemate ? d.buyerDeposit : 0);
         if (buyerGets > 0) token.safeTransfer(d.buyer, buyerGets);
         (uint256 net, uint256 fee) = _payTraveler(d, toTraveler, travelerExtra);
         emit DisputeSettled(id, buyerGets, net, fee);
+    }
+
+    /// @dev A refunded request gives its trip slot and allowance back.
+    function _freeSlot(uint256 id, Deal storage d) private {
+        Trip storage t = _trips[d.tripId];
+        t.slotsUsed -= 1;
+        t.centsUsed -= _dealInfo[id].priceCents;
     }
 
     /// @dev Fee is taken only from the traveler's share of the payment — never from refunds or deposits.

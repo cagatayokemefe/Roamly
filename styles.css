@@ -377,3 +377,8 @@ body.tx-busy .btn,body.tx-busy .wallet-btn{opacity:.6;pointer-events:none;}
 .lang-switch button{min-width:38px;min-height:38px;padding:0 8px;border:none;border-radius:999px;background:none;font:inherit;font-size:13px;font-weight:800;color:var(--muted);cursor:pointer;}
 .lang-switch button.on{background:var(--green);color:var(--white);}
 .lang-switch button:not(.on):hover{color:var(--green);}
+
+/* ---------- Profile name ---------- */
+.panel-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+.name-input{min-height:44px;width:200px;max-width:100%;padding:0 14px;border-radius:999px;border:1px solid var(--field);background:var(--cream);font:inherit;font-size:14px;color:var(--ink);}
+.name-input:focus{outline:none;border-color:var(--green);}

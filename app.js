@@ -49,6 +49,9 @@ const shortName = name => { const p = name.split(' '); return p.length > 1 ? `${
 // Your own trips and requests are stored as "You"/"you"; show them in the current language
 const travelerName = trip => trip?.mine ? t('you') : trip?.traveler || '';
 const buyerName = req => req.buyer === 'you' ? t('you') : req.buyer;
+// Demo trips carry a sample rating; on-chain trips show their on-chain one (until it loads: "New traveler")
+const tripRating = trip => trip.chainTripId || !trip.rating ? t('side.newTraveler')
+  : `★ ${fmtNum(trip.rating, {minimumFractionDigits:1, maximumFractionDigits:1})}`;
 // History entries are stored as {k, v} (translation key + values); older saved ones as plain text
 const histLabel = h => h.k ? t(h.k, h.v) : h.label;
 
@@ -77,16 +80,23 @@ function seed(){
   return {trips, requests, filter:'all', selectedTripId:null, disputeId:null};
 }
 
+// Live mode keeps a separate cache per contract (trips come from the chain; the cache holds what only
+// this browser knows, like delivery codes and receipt photos). Demo mode keeps the sample data.
+const STATE_KEY = LIVE ? `roamly-live-${LIVE_CHAIN}-${DEPLOYMENTS[LIVE_CHAIN].escrow.toLowerCase()}` : STORE_KEY;
+const emptyState = () => ({trips:[], requests:[], filter:'all', selectedTripId:null, disputeId:null});
 let state;
-try { state = JSON.parse(localStorage.getItem(STORE_KEY) || localStorage.getItem(OLD_STORE_KEY)) || seed(); } catch { state = seed(); }
-function save(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
+try { state = JSON.parse(localStorage.getItem(STATE_KEY) || (LIVE ? null : localStorage.getItem(OLD_STORE_KEY))) || (LIVE ? emptyState() : seed()); }
+catch { state = LIVE ? emptyState() : seed(); }
+function save(){ try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch {} }
 
 const tripById = id => state.trips.find(t => t.id === id);
 const reqById = id => state.requests.find(r => r.id === id);
 const tripRequests = trip => state.requests.filter(r => r.tripId === trip.id);
-const slotsUsed = trip => tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).length;
-const slotsLeft = trip => Math.max(trip.capacity - slotsUsed(trip), 0);
-const allowanceUsed = trip => tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).reduce((s, r) => s + r.price, 0);
+// On-chain trips carry their own counts (the contract tracks every request, not just ours)
+const slotsUsed = trip => trip.chainTripId ? trip.slotsUsed : tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).length;
+const slotsLeft = trip => trip.closed ? 0 : Math.max(trip.capacity - slotsUsed(trip), 0);
+const allowanceUsed = trip => trip.chainTripId ? trip.centsUsed / 100
+  : tripRequests(trip).filter(r => HOLDS_SLOT.includes(r.status)).reduce((s, r) => s + r.price, 0);
 const cityOf = trip => { const c = CITIES[trip.code]; return c ? (LANG === 'tr' && c.tr) || c.city : trip.code; };
 const regionOf = trip => CITIES[trip.code]?.region || 'Europe';
 const isUpcoming = trip => daysFromToday(trip.date) >= 0;
@@ -168,7 +178,7 @@ function renderTrips(){
   $('trip-grid').innerHTML = trips.length ? trips.map((tr, i) => {
     const left = slotsLeft(tr);
     const free = LIMIT - allowanceUsed(tr);
-    const rating = tr.mine ? t('card.yourTrip') : onChainRating(tr, true) || `★ ${fmtNum(tr.rating, {minimumFractionDigits:1, maximumFractionDigits:1})}`;
+    const rating = tr.mine ? t('card.yourTrip') : onChainRating(tr, true) || tripRating(tr);
     return `
       <button class="trip-card ${left ? '' : 'full'}" data-trip="${tr.id}">
         <div class="trip-top ${i % 2 ? 'mint' : 'sand'}">
@@ -187,7 +197,8 @@ function renderTrips(){
           </div>
         </div>
       </button>`;
-  }).join('') : `<div class="empty">${t('browse.empty')}</div>`;
+  }).join('') : `<div class="empty">${LIVE && !market.loaded ? t(market.error ? 'browse.loadFail' : 'browse.loading')
+    : state.trips.some(isUpcoming) ? t('browse.empty') : `${t('browse.none')} <span class="link" onclick="showView('list-trip')">${t('dash.listOne')}</span>`}</div>`;
 }
 
 function openTrip(id){
@@ -220,7 +231,7 @@ function renderDetail(){
   $('side-init').textContent = initials(name);
   $('side-name').textContent = name;
   $('side-trips').textContent = trip.completed ?? 0;
-  $('side-rating').textContent = onChainRating(trip) || (trip.mine ? t('side.newTraveler') : `★ ${fmtNum(trip.rating, {minimumFractionDigits:1, maximumFractionDigits:1})}`);
+  $('side-rating').textContent = onChainRating(trip) || (trip.mine ? t('side.newTraveler') : tripRating(trip));
   const reviews = reviewsFor(trip);
   $('side-reviews').innerHTML = reviews.slice(-3).reverse().map(r =>
     `<div class="review-line"><span class="stars">${starsText(r.stars)}</span>${r.comment ? ` “${esc(r.comment)}”` : ''} <span class="muted">· ${esc(r.item)}</span></div>`).join('');
@@ -228,6 +239,7 @@ function renderDetail(){
 
   let blocked = '';
   if(trip.mine && !canPayOnChain(trip)) blocked = trip.wallet ? t('blocked.ownWallet') : t('blocked.own');
+  else if(trip.closed) blocked = t('blocked.closed');
   else if(!left) blocked = t('blocked.full');
   $('detail-blocked').textContent = blocked;
   $('detail-blocked').style.display = blocked ? 'block' : 'none';
@@ -280,6 +292,7 @@ async function sendRequest(){
   const err = $('req-error');
   const onChain = canPayOnChain(trip);
   if(!trip || (trip.mine && !onChain) || !slotsLeft(trip)) return;
+  if(LIVE && !onChain){ err.textContent = t('req.errWallet'); connectWallet(); return; }
   if(!item){ err.textContent = t('req.errItem'); return; }
   if(link && !/^https?:\/\/\S+$/i.test(link)){ err.textContent = t('req.errLink'); return; }
   const res = checkRequest();
@@ -290,6 +303,7 @@ async function sendRequest(){
     const chain = await payOnChain(req, trip);
     if(!chain) return;
     req.chain = chain;
+    req.id = 'd' + chain.dealId; // matches the id the chain sync uses
     req.history[0] = {k:'hist.sentChain', v:{amt:fmtDeal(req, chain.amount), dep:BigInt(chain.deposit) > 0n ? fmtDeal(req, chain.deposit) : ''}, at:req.history[0].at};
   }
   state.requests.push(req);
@@ -297,7 +311,7 @@ async function sendRequest(){
   resetRequestForm();
   const name = trip.mine ? t('pay.theTraveler') : travelerName(trip);
   toast(onChain ? t('toast.paidEscrow', {name}) : t('toast.sent', {name}));
-  if(onChain) syncDeal(req).catch(() => {});
+  if(onChain) syncDeals().then(renderAll); // picks up the deal and the trip's new slot/allowance counts
   else scheduleAutoAccept(req.id);
   showView('dashboard');
 }
@@ -315,7 +329,7 @@ function scheduleAutoAccept(id){
 }
 
 // ---------- List a trip ----------
-function submitTrip(){
+async function submitTrip(){
   const code = $('lt-city').value;
   const date = $('lt-date').value;
   const capacity = parseInt($('lt-capacity').value, 10);
@@ -325,10 +339,16 @@ function submitTrip(){
   if(!date || daysFromToday(date) < 0){ err.textContent = t('lt.errDate'); return; }
   if(!(capacity >= 1 && capacity <= 5)){ err.textContent = t('lt.errCap'); return; }
   if(!categories.length){ err.textContent = t('lt.errCats'); return; }
+  if(LIVE && !chainReady()){ err.textContent = t('lt.errWallet'); connectWallet(); return; }
   err.textContent = '';
-  state.trips.push({id:uid('t'), code, date, traveler:'You', capacity, categories, notes:$('lt-notes').value.trim(), mine:true, rating:0, completed:0,
-    wallet:chainReady() ? wallet.account : null});
-  save();
+  const notes = $('lt-notes').value.trim();
+  if(LIVE){
+    if(!await listTripOnChain(code, date, capacity, categories, notes)) return;
+  } else {
+    state.trips.push({id:uid('t'), code, date, traveler:'You', capacity, categories, notes, mine:true, rating:0, completed:0,
+      wallet:chainReady() ? wallet.account : null});
+    save();
+  }
   $('trip-confirm').classList.add('show');
   ['lt-city','lt-date','lt-capacity','lt-notes'].forEach(id => $(id).value = '');
   document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('on'));
@@ -490,6 +510,7 @@ function renderAll(){
 }
 
 function scheduleSeedAccepts(){
+  if(LIVE) return;
   state.requests.filter(r => r.status === 'pending' && !tripById(r.tripId).mine).forEach(r => scheduleAutoAccept(r.id));
 }
 
@@ -519,6 +540,8 @@ function onLangChange(){
 
 applyStatic();
 renderFormOptions();
+// Live data can't be reset — it's on the chain
+if(LIVE) document.querySelector('[onclick="resetDemo()"]').hidden = true;
 $('lt-date').min = localDate();
 
 document.querySelectorAll('[data-view]').forEach(t => t.addEventListener('click', () => showView(t.dataset.view)));

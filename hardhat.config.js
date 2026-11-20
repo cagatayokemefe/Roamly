@@ -7,7 +7,8 @@ const { PRIVATE_KEY, BSC_TESTNET_RPC } = process.env;
 module.exports = {
   solidity: {
     version: '0.8.24',
-    settings: { optimizer: { enabled: true, runs: 200 } },
+    // viaIR: createDeal takes many parameters, which overflows the classic compiler's stack
+    settings: { optimizer: { enabled: true, runs: 200 }, viaIR: true },
   },
   networks: {
     // Testnet only for now — free test BNB from https://www.bnbchain.org/en/testnet-faucet

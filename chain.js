@@ -43,7 +43,15 @@ const NETWORKS = {
           nativeCurrency:{name:'ETH', symbol:'ETH', decimals:18}, blockExplorerUrls:null},
 };
 const ESCROW_ABI = [
-  'function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref, bytes32 codeHash) returns (uint256)',
+  'function createDeal(uint256 tripId, uint128 amount, bytes32 codeHash, string item, string link, uint8 category, uint32 priceCents) returns (uint256)',
+  'function listTrip(string code, uint64 date, uint8 capacity, uint8 categories, string notes) returns (uint256)',
+  'function closeTrip(uint256 id)',
+  'function setName(string name)',
+  'function names(address) view returns (string)',
+  'function tripCount() view returns (uint256)',
+  'function getTrips(uint256 from, uint256 count) view returns (tuple(address traveler, uint64 date, uint8 capacity, uint8 categories, uint8 slotsUsed, bool closed, uint32 centsUsed, string code, string notes)[])',
+  'function dealsOf(address who) view returns (uint256[])',
+  'function getDealInfo(uint256 id) view returns (tuple(string item, string link, uint8 category, uint32 priceCents))',
   'function confirmWithCode(uint256 id, string code)',
   'function attachReceipt(uint256 id, bytes32 hash, uint32 totalCents)',
   'function receipts(uint256) view returns (bytes32 hash, uint32 totalCents, uint64 attachedAt)',
@@ -57,14 +65,15 @@ const ESCROW_ABI = [
   'function claimRefund(uint256 id)',
   'function proposeSplit(uint256 id, uint128 toBuyer)',
   'function settleStalemate(uint256 id)',
-  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted, uint128 buyerDeposit, uint128 travelerDeposit, bytes32 codeHash))',
+  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted, uint128 buyerDeposit, uint128 travelerDeposit, bytes32 codeHash, uint256 tripId))',
   'function depositBps() view returns (uint16)',
   'function rate(uint256 id, uint8 stars, string comment)',
   'function getReviews(uint256 id) view returns (tuple(uint8 stars, string comment) byBuyer, tuple(uint8 stars, string comment) byTraveler)',
   'function reputation(address) view returns (uint64 count, uint64 totalStars)',
-  'event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref)',
+  'event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 tripId, uint256 amount)',
   'error InvalidParams()', 'error NotBuyer()', 'error NotTraveler()', 'error NotParty()',
   'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()', 'error WrongCode()', 'error AlreadyAttached()',
+  'error TripNotOpen()', 'error TripFull()', 'error OverAllowance()', 'error CategoryNotCarried()',
 ];
 const TOKEN_ABI = [
   'function balanceOf(address) view returns (uint256)',
@@ -89,14 +98,26 @@ const CHAIN_ACTIONS = {
 
 const FINAL_DEALS = ['Released','Refunded','Split'];
 const MAX_COMMENT = 140; // characters; the contract allows 280 bytes, enough for 140 Turkish letters
-const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false, reps:{}, depositBps:0n};
+const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false, reps:{}, names:{}, depositBps:0n};
 const hasEthers = typeof ethers !== 'undefined';
+
+// Live mode: the contracts are deployed, so trips and requests come from the chain and every user sees
+// the same ones (read through a public RPC, so no wallet is needed to browse). Without a deployment
+// (e.g. before the testnet deploy) the app runs on local demo data instead.
+const LIVE_CHAIN = DEPLOYMENTS[97] ? 97 : DEPLOYMENTS[31337] ? 31337 : null;
+const LIVE = hasEthers && !!LIVE_CHAIN;
+const reader = LIVE ? new ethers.Contract(DEPLOYMENTS[LIVE_CHAIN].escrow, ESCROW_ABI,
+  new ethers.JsonRpcProvider(NETWORKS[LIVE_CHAIN].rpcUrls[0], LIVE_CHAIN, {staticNetwork:true})) : null;
+const market = {loaded:false, error:false, decimals:18, symbol:'USDT'};
+// Prefer the wallet's connection when it's on the live chain: it sees our own transactions first
+const reads = () => chainReady() && wallet.chainId === LIVE_CHAIN ? wallet.escrow : reader;
 
 // ---------- Helpers ----------
 const shortAddr = a => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '';
 const sameAddr = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 const chainReady = () => !!(wallet.account && wallet.escrow);
-const isCurrentContract = req => !!req.chain && req.chain.chainId === wallet.chainId && sameAddr(req.chain.escrow, wallet.dep?.escrow);
+const isCurrentContract = req => LIVE && !!req.chain && req.chain.chainId === LIVE_CHAIN && sameAddr(req.chain.escrow, DEPLOYMENTS[LIVE_CHAIN].escrow);
+const displayName = addr => wallet.names[addr?.toLowerCase()] || shortAddr(addr);
 const networkName = id => NETWORKS[id]?.chainName || `chain ${id}`;
 const nowSec = () => Math.floor(Date.now() / 1000);
 const fmtSecDay = s => new Date(s * 1000).toLocaleDateString(LOCALE(), {day:'numeric', month:'short'});
@@ -182,10 +203,9 @@ async function setupWallet(account){
     wallet.decimals = Number(decimals);
     wallet.symbol = symbol;
     wallet.depositBps = BigInt(depositBps);
-    await syncDeals();
-    await loadReputations();
     await refreshBalance();
   }
+  await syncDeals();
   renderAll();
 }
 
@@ -237,10 +257,10 @@ async function payOnChain(req, trip){
   const amount = eurToUnits(req.price);
   const deposit = depositFor(amount);
   if(!await ensureFunds(amount + deposit)) return null;
-  const deliverBy = Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400;
   const code = newDeliveryCode();
   const receipt = await sendTx(t('pending.lock', {amt:fmtUnits(amount), dep:fmtUnits(deposit)}),
-    () => wallet.escrow.createDeal(trip.wallet, amount, deliverBy, ethers.encodeBytes32String(req.id), ethers.id(code)));
+    () => wallet.escrow.createDeal(trip.chainTripId, amount, ethers.id(code), req.item, req.link,
+      CATEGORIES.indexOf(req.category), Math.round(req.price * 100)));
   if(!receipt) return null;
   const created = receipt.logs.map(l => { try { return wallet.escrow.interface.parseLog(l); } catch { return null; } })
     .find(l => l?.name === 'DealCreated');
@@ -261,6 +281,7 @@ async function chainAction(req, act, ...args){
     req.chain.intent = act;
     await syncDeal(req);
     refreshBalance();
+    syncDeals(); // trip slots and allowance may have changed too
   } else {
     await syncDeal(req).catch(() => {});
   }
@@ -294,7 +315,7 @@ function appStatusFor(req, s){
 }
 
 async function syncDeal(req){
-  const d = await wallet.escrow.getDeal(req.chain.dealId);
+  const d = await reads().getDeal(req.chain.dealId);
   const s = DEAL[Number(d.status)];
   const prev = req.deal?.status;
   req.deal = {status:s, deliverBy:Number(d.deliverBy), deliveredAt:Number(d.deliveredAt), disputedAt:Number(d.disputedAt),
@@ -302,14 +323,14 @@ async function syncDeal(req){
               buyerDeposit:d.buyerDeposit.toString(), travelerDeposit:d.travelerDeposit.toString(), codeHash:d.codeHash};
   let reviewsChanged = false;
   if(d.accepted && FINAL_DEALS.includes(s)){
-    const [byBuyer, byTraveler] = await wallet.escrow.getReviews(req.chain.dealId);
+    const [byBuyer, byTraveler] = await reads().getReviews(req.chain.dealId);
     const reviews = {byBuyer:{stars:Number(byBuyer.stars), comment:byBuyer.comment}, byTraveler:{stars:Number(byTraveler.stars), comment:byTraveler.comment}};
     reviewsChanged = JSON.stringify(reviews) !== JSON.stringify(req.reviews);
     req.reviews = reviews;
   }
   // A receipt can only be attached once, so stop asking after we've seen it
   if(d.accepted && !req.receipt){
-    const rc = await wallet.escrow.receipts(req.chain.dealId);
+    const rc = await reads().receipts(req.chain.dealId);
     if(rc.hash !== ethers.ZeroHash){
       req.receipt = {hash:rc.hash, totalCents:Number(rc.totalCents), attachedAt:Number(rc.attachedAt)};
       reviewsChanged = true;
@@ -325,8 +346,8 @@ async function syncDeal(req){
 }
 
 async function syncDeals(){
-  if(!chainReady() || wallet.busy) return;
-  let changed = false;
+  if(!LIVE || wallet.busy) return;
+  let changed = await loadMarket();
   for(const req of state.requests.filter(isCurrentContract)){
     try { changed = await syncDeal(req) || changed; } catch {}
   }
@@ -334,16 +355,97 @@ async function syncDeals(){
   if(changed) renderAll();
 }
 
+// ---------- Shared marketplace (live mode) ----------
+const unixToLocalDate = sec => { const d = new Date(sec * 1000); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const categoryMask = cats => cats.reduce((m, c) => m | (1 << CATEGORIES.indexOf(c)), 0);
+
+async function loadNames(addrs){
+  for(const a of new Set(addrs.filter(Boolean).map(x => x.toLowerCase()))){
+    try { wallet.names[a] = await reads().names(a); } catch {}
+  }
+}
+
+function tripFromChain(raw, id, me){
+  return {id:'c' + id, chainTripId:id, code:raw.code, date:unixToLocalDate(Number(raw.date)), traveler:displayName(raw.traveler),
+    capacity:Number(raw.capacity), categories:CATEGORIES.filter((c, i) => Number(raw.categories) & (1 << i)), notes:raw.notes,
+    mine:sameAddr(raw.traveler, me), rating:0, completed:0, wallet:raw.traveler, closed:raw.closed,
+    slotsUsed:Number(raw.slotsUsed), centsUsed:Number(raw.centsUsed)};
+}
+
+// A deal this browser hasn't seen before (e.g. someone requested an item on your trip)
+function requestFromChain(id, d, info){
+  return {id:'d' + id, tripId:'c' + d.tripId, item:info.item, link:info.link, price:Number(info.priceCents) / 100,
+    category:CATEGORIES[Number(info.category)] || 'General', buyer:'', status:appStatusFor({chain:{}}, DEAL[Number(d.status)]),
+    history:[{k:'hist.sent', v:{}, at:nowIso()}],
+    chain:{dealId:String(id), chainId:LIVE_CHAIN, escrow:DEPLOYMENTS[LIVE_CHAIN].escrow, amount:d.amount.toString(),
+      deposit:d.buyerDeposit.toString(), decimals:market.decimals, symbol:market.symbol, buyer:d.buyer, traveler:d.traveler, txs:[]}};
+}
+
+// Read every trip and the deals involving the connected wallet. Requests already known keep their
+// browser-only data (delivery code, receipt photo, history). Returns true if anything changed.
+async function loadMarket(){
+  const me = wallet.account;
+  try {
+    if(!market.loaded){
+      const token = new ethers.Contract(DEPLOYMENTS[LIVE_CHAIN].token, TOKEN_ABI, reader.runner);
+      const [decimals, symbol] = await Promise.all([token.decimals(), token.symbol()]);
+      Object.assign(market, {decimals:Number(decimals), symbol});
+    }
+    const count = Number(await reads().tripCount());
+    const raw = [];
+    for(let from = 1; from <= count; from += 100) raw.push(...await reads().getTrips(from, 100));
+    const known = new Set(state.requests.filter(isCurrentContract).map(r => r.chain.dealId));
+    const newIds = me ? (await reads().dealsOf(me)).map(String).filter(id => !known.has(id)) : [];
+    const fresh = await Promise.all(newIds.map(async id => [id, ...await Promise.all([reads().getDeal(id), reads().getDealInfo(id)])]));
+    const mine = state.requests.filter(isCurrentContract);
+    await loadNames([...raw.map(r => r.traveler), ...fresh.map(([, d]) => d.buyer), ...mine.map(r => r.chain.buyer), me]);
+
+    const before = JSON.stringify([state.trips, state.requests.map(r => [r.id, r.buyer])]);
+    state.trips = raw.map((r, i) => tripFromChain(r, i + 1, me));
+    // "trips completed": the traveler's past trips
+    state.trips.forEach(tr => { tr.completed = state.trips.filter(o => sameAddr(o.wallet, tr.wallet) && !isUpcoming(o)).length; });
+    fresh.forEach(([id, d, info]) => state.requests.push(requestFromChain(id, d, info)));
+    state.requests.filter(isCurrentContract).forEach(r => { r.buyer = sameAddr(r.chain.buyer, me) ? 'you' : displayName(r.chain.buyer); });
+    const changed = !market.loaded || market.error || before !== JSON.stringify([state.trips, state.requests.map(r => [r.id, r.buyer])]);
+    Object.assign(market, {loaded:true, error:false});
+    save();
+    return changed;
+  } catch {
+    const changed = !market.error;
+    market.error = true;
+    return changed;
+  }
+}
+
+async function listTripOnChain(code, date, capacity, categories, notes){
+  const unix = Math.floor(parseDay(date).getTime() / 1000);
+  const receipt = await sendTx(t('pending.list'), () => wallet.escrow.listTrip(code, unix, capacity, categoryMask(categories), notes));
+  if(receipt) await syncDeals();
+  return !!receipt;
+}
+
+async function saveName(){
+  const name = $('name-input').value.trim();
+  if(new TextEncoder().encode(name).length > 32){ toast(t('panel.nameTooLong')); return; }
+  if(!chainReady()) return connectWallet();
+  if(await sendTx(t('pending.name'), () => wallet.escrow.setName(name))){
+    wallet.names[wallet.account.toLowerCase()] = name;
+    await syncDeals();
+    renderAll();
+    toast(t('toast.nameSaved'));
+  }
+}
+
 // ---------- Ratings ----------
 // On-chain reputation for every wallet the app knows about (traveler wallets, deal parties)
 async function loadReputations(){
-  if(!chainReady()) return false;
+  if(!LIVE) return false;
   const addrs = new Set([...state.trips.map(t => t.wallet), ...state.requests.filter(isCurrentContract).flatMap(r => [r.chain.buyer, r.chain.traveler])]
     .filter(Boolean).map(a => a.toLowerCase()));
   let changed = false;
   for(const a of addrs){
     try {
-      const rep = await wallet.escrow.reputation(a);
+      const rep = await reads().reputation(a);
       const next = {count:Number(rep.count), total:Number(rep.totalStars)};
       if(JSON.stringify(next) !== JSON.stringify(wallet.reps[a])){ wallet.reps[a] = next; changed = true; }
     } catch {}
@@ -502,7 +604,7 @@ async function submitReceipt(){
   if(!(total > 0)){ $('receipt-error').textContent = t('receipt.errTotal'); return; }
   // Make sure the photo fits in browser storage before saving its fingerprint for good
   req.receiptImage = receiptDraft;
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); }
   catch {
     delete req.receiptImage;
     $('receipt-error').textContent = t('receipt.errStorage');
@@ -641,7 +743,7 @@ function renderWallet(){
   btn.setAttribute('aria-label', chainReady() ? t('wallet.aria', {addr:wallet.account}) : label.textContent);
   btn.title = chainReady() ? t('wallet.titleOn', {addr:wallet.account, net:networkName(wallet.chainId)}) : t('wallet.titleOff');
 
-  $('lt-wallet').innerHTML = chainReady() ? t('lt.walletOn', {addr:esc(shortAddr(wallet.account))}) : t('lt.walletOff');
+  $('lt-wallet').innerHTML = chainReady() ? t('lt.walletOn', {addr:esc(shortAddr(wallet.account))}) : t(LIVE ? 'lt.walletOffLive' : 'lt.walletOff');
 
   const panel = $('wallet-panel');
   if(!chainReady()){
@@ -651,10 +753,16 @@ function renderWallet(){
       <button class="btn btn-sm btn-primary" onclick="${wallet.account ? 'ensureNetwork().then(() => setupWallet(wallet.account)).catch(e => toast(friendlyError(e)))' : 'connectWallet()'}">${wallet.account ? t('panel.switch') : t('wallet.connect')}</button>`;
     return;
   }
+  if(document.activeElement?.id === 'name-input') return; // don't wipe a name being typed
+  const myName = wallet.names[wallet.account.toLowerCase()] || '';
   panel.innerHTML = `
-    <div><b>${esc(shortAddr(wallet.account))} · ${wallet.balance === null ? '…' : esc(fmtUnits(wallet.balance))}</b>
+    <div><b>${esc(myName || shortAddr(wallet.account))} · ${wallet.balance === null ? '…' : esc(fmtUnits(wallet.balance))}</b>
       <span>${esc(t('panel.info', {net:networkName(wallet.chainId), addr:shortAddr(wallet.dep.escrow), fee:fmtNum(wallet.dep.feeBps / 100)}))}</span></div>
-    ${wallet.dep.testToken ? `<button class="btn btn-sm btn-sand" onclick="getTestTokens()">${t('panel.faucet')}</button>` : ''}`;
+    <div class="panel-actions">
+      ${LIVE ? `<input id="name-input" class="name-input" maxlength="32" value="${esc(myName)}" placeholder="${esc(t('panel.namePh'))}" aria-label="${esc(t('panel.name'))}">
+        <button class="btn btn-sm btn-ghost" onclick="saveName()">${t('panel.saveName')}</button>` : ''}
+      ${wallet.dep.testToken ? `<button class="btn btn-sm btn-sand" onclick="getTestTokens()">${t('panel.faucet')}</button>` : ''}
+    </div>`;
 }
 
 // Meta line + buttons for an on-chain request on the dashboard
@@ -786,9 +894,12 @@ async function settleUI(){
 function initChain(){
   loadRate();
   setInterval(loadRate, 60 * 60 * 1000);
+  if(LIVE){
+    syncDeals().then(renderAll);
+    setInterval(syncDeals, 15000);
+  }
   if(!hasEthers || !window.ethereum) return;
   window.ethereum.request({method:'eth_accounts'}).then(([a]) => a && setupWallet(a)).catch(() => {});
   window.ethereum.on?.('accountsChanged', ([a]) => setupWallet(a || null).catch(() => {}));
   window.ethereum.on?.('chainChanged', () => setupWallet(wallet.account).catch(() => {}));
-  setInterval(syncDeals, 15000);
 }

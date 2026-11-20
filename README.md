@@ -18,11 +18,18 @@ Payments can run through a **smart contract on BNB Smart Chain**: the buyer's mo
 
 - **Turkish and English** — a TR | EN switch in the header; the first visit follows the browser's language and the choice is remembered. Dates and numbers are formatted for the chosen language.
 
-App data is saved in the browser's `localStorage`. Use **Reset demo data** in the footer to restore the sample trips.
+### Live mode and demo mode
+
+- **Live mode** — when the contracts are deployed (an entry in `deployments.js`, or `deployments.local.js` on localhost), trips, display names and request details are read from the contract, so **every user sees the same marketplace**. Visitors can browse without a wallet (the site reads through a public RPC); listing a trip, requesting an item or setting your name is a transaction from your wallet. Your wallet address is your account — no passwords.
+- **Demo mode** — with no deployment (like the live site before the testnet deploy), the app runs on sample data saved in the browser. **Reset demo data** in the footer restores it.
+
+What only you should know stays in your browser either way: your delivery codes, receipt photos and the history of your requests.
 
 ## How the escrow contract works
 
-[`contracts/RoamlyEscrow.sol`](contracts/RoamlyEscrow.sol) has **no owner, admin or arbiter** — nobody can move a deal's money except through these rules:
+[`contracts/RoamlyEscrow.sol`](contracts/RoamlyEscrow.sol) is both the marketplace and the escrow. It stores trips (city, date, capacity, accepted categories, notes), display names and each request's details (item, link, category, price in €), and it enforces the rules itself: a request must fit the trip's capacity, one of its categories and **Turkey's €430 allowance per trip**. A refunded request frees its slot and allowance again.
+
+It has **no owner, admin or arbiter** — nobody can move a deal's money except through these rules:
 
 | Situation | What happens |
 | --- | --- |
