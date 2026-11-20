@@ -10,13 +10,15 @@ const REF = ethers.encodeBytes32String('r-demo');
 async function deploy(){
   const [deployer, buyer, traveler, feeWallet, stranger] = await ethers.getSigners();
   const token = await ethers.deployContract('TestUSDT');
-  const escrow = await ethers.deployContract('RoamlyEscrow', [token, feeWallet.address, 200]);
-  await token.connect(buyer).faucet();
-  await token.connect(buyer).approve(escrow, ethers.MaxUint256);
+  const escrow = await ethers.deployContract('RoamlyEscrow', [token, feeWallet.address, 200, 1000]);
+  for(const who of [buyer, traveler]){
+    await token.connect(who).faucet();
+    await token.connect(who).approve(escrow, ethers.MaxUint256);
+  }
   return { token, escrow, deployer, buyer, traveler, feeWallet, stranger };
 }
 
-// A funded 100 USDT deal due in 14 days
+// A funded 100 USDT deal due in 14 days (plus a 10 USDT deposit from each side once accepted)
 async function funded(){
   const f = await deploy();
   const deliverBy = (await time.latest()) + 14 * DAY;
@@ -42,9 +44,10 @@ const status = async f => (await f.escrow.getDeal(f.id)).status;
 
 describe('RoamlyEscrow', () => {
   describe('deploy', () => {
-    it('has no owner and an immutable 2% fee', async () => {
+    it('has no owner, an immutable 2% fee and a 10% deposit', async () => {
       const { escrow, feeWallet } = await loadFixture(deploy);
       expect(await escrow.feeBps()).to.equal(200);
+      expect(await escrow.depositBps()).to.equal(1000);
       expect(await escrow.feeRecipient()).to.equal(feeWallet.address);
       expect(escrow.interface.hasFunction('owner')).to.equal(false);
     });
@@ -52,18 +55,25 @@ describe('RoamlyEscrow', () => {
       const token = await ethers.deployContract('TestUSDT');
       const [a] = await ethers.getSigners();
       const Escrow = await ethers.getContractFactory('RoamlyEscrow');
-      await expect(Escrow.deploy(token, a.address, 501)).to.be.revertedWithCustomError(Escrow, 'InvalidParams');
+      await expect(Escrow.deploy(token, a.address, 501, 1000)).to.be.revertedWithCustomError(Escrow, 'InvalidParams');
+    });
+    it('refuses a deposit above 30%', async () => {
+      const token = await ethers.deployContract('TestUSDT');
+      const [a] = await ethers.getSigners();
+      const Escrow = await ethers.getContractFactory('RoamlyEscrow');
+      await expect(Escrow.deploy(token, a.address, 200, 3001)).to.be.revertedWithCustomError(Escrow, 'InvalidParams');
     });
   });
 
   describe('createDeal', () => {
-    it('locks the buyer\'s tokens in the contract', async () => {
+    it('locks the buyer\'s payment and deposit in the contract', async () => {
       const f = await loadFixture(funded);
-      expect(await f.token.balanceOf(f.escrow)).to.equal(usdt(100));
+      expect(await f.token.balanceOf(f.escrow)).to.equal(usdt(110));
       const d = await f.escrow.getDeal(f.id);
       expect(d.buyer).to.equal(f.buyer.address);
       expect(d.traveler).to.equal(f.traveler.address);
       expect(d.status).to.equal(S.Funded);
+      expect([d.buyerDeposit, d.travelerDeposit]).to.deep.equal([usdt(10), 0n]);
     });
     it('emits DealCreated with the app reference', async () => {
       const f = await loadFixture(deploy);
@@ -83,14 +93,14 @@ describe('RoamlyEscrow', () => {
   });
 
   describe('before acceptance', () => {
-    it('buyer can cancel for a full refund', async () => {
+    it('buyer can cancel for a full refund, deposit included', async () => {
       const f = await loadFixture(funded);
-      await expect(f.escrow.connect(f.buyer).cancel(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(100));
+      await expect(f.escrow.connect(f.buyer).cancel(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(110));
       expect(await status(f)).to.equal(S.Refunded);
     });
     it('traveler can decline for a full refund', async () => {
       const f = await loadFixture(funded);
-      await expect(f.escrow.connect(f.traveler).decline(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(100));
+      await expect(f.escrow.connect(f.traveler).decline(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(110));
     });
     it('only the traveler can accept, and only once', async () => {
       const f = await loadFixture(funded);
@@ -103,20 +113,31 @@ describe('RoamlyEscrow', () => {
       const f = await loadFixture(funded);
       await time.increaseTo(f.deliverBy + 1);
       await expect(f.escrow.connect(f.traveler).accept(f.id)).to.be.revertedWithCustomError(f.escrow, 'TooLate');
-      await expect(f.escrow.connect(f.stranger).claimRefund(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(100));
+      await expect(f.escrow.connect(f.stranger).claimRefund(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(110));
+    });
+    it('accepting locks the traveler deposit', async () => {
+      const f = await loadFixture(funded);
+      await expect(f.escrow.connect(f.traveler).accept(f.id)).to.changeTokenBalance(f.token, f.traveler, usdt(-10));
+      expect((await f.escrow.getDeal(f.id)).travelerDeposit).to.equal(usdt(10));
+    });
+    it('traveler cannot accept without the deposit', async () => {
+      const f = await loadFixture(funded);
+      await f.token.connect(f.traveler).approve(f.escrow, 0);
+      await expect(f.escrow.connect(f.traveler).accept(f.id)).to.be.reverted;
+      expect(await status(f)).to.equal(S.Funded);
     });
   });
 
   describe('happy path', () => {
-    it('buyer confirms: traveler gets 98, fee wallet gets 2', async () => {
+    it('buyer confirms: traveler gets 98 + deposit back, fee wallet 2, buyer deposit back', async () => {
       const f = await loadFixture(delivered);
       await expect(f.escrow.connect(f.buyer).confirmDelivery(f.id))
-        .to.changeTokenBalances(f.token, [f.traveler, f.feeWallet, f.escrow], [usdt(98), usdt(2), usdt(-100)]);
+        .to.changeTokenBalances(f.token, [f.traveler, f.feeWallet, f.buyer, f.escrow], [usdt(108), usdt(2), usdt(10), usdt(-120)]);
       expect(await status(f)).to.equal(S.Released);
     });
     it('buyer can confirm even before the traveler marks delivery', async () => {
       const f = await loadFixture(accepted);
-      await expect(f.escrow.connect(f.buyer).confirmDelivery(f.id)).to.changeTokenBalance(f.token, f.traveler, usdt(98));
+      await expect(f.escrow.connect(f.buyer).confirmDelivery(f.id)).to.changeTokenBalance(f.token, f.traveler, usdt(108));
     });
     it('nobody else can confirm', async () => {
       const f = await loadFixture(delivered);
@@ -135,13 +156,15 @@ describe('RoamlyEscrow', () => {
       const f = await loadFixture(delivered);
       await expect(f.escrow.claimPayment(f.id)).to.be.revertedWithCustomError(f.escrow, 'TooEarly');
       await time.increase(7 * DAY);
-      await expect(f.escrow.connect(f.stranger).claimPayment(f.id)).to.changeTokenBalance(f.token, f.traveler, usdt(98));
+      await expect(f.escrow.connect(f.stranger).claimPayment(f.id))
+        .to.changeTokenBalances(f.token, [f.traveler, f.buyer], [usdt(108), usdt(10)]);
     });
-    it('buyer is refunded if the deadline passes without delivery', async () => {
+    it('missed deadline: buyer gets everything back plus the traveler\'s deposit', async () => {
       const f = await loadFixture(accepted);
       await expect(f.escrow.claimRefund(f.id)).to.be.revertedWithCustomError(f.escrow, 'TooEarly');
       await time.increaseTo(f.deliverBy + 1);
-      await expect(f.escrow.claimRefund(f.id)).to.changeTokenBalance(f.token, f.buyer, usdt(100));
+      await expect(f.escrow.claimRefund(f.id))
+        .to.changeTokenBalances(f.token, [f.buyer, f.traveler, f.escrow], [usdt(120), 0, usdt(-120)]);
     });
     it('no refund claim once the item is marked delivered', async () => {
       const f = await loadFixture(delivered);
@@ -164,11 +187,11 @@ describe('RoamlyEscrow', () => {
       await expect(f.escrow.claimPayment(f.id)).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
       await expect(f.escrow.claimRefund(f.id)).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
     });
-    it('pays out when both sides propose the same split (fee only on traveler share)', async () => {
+    it('agreed split: paid as agreed, both deposits returned, fee only on traveler share', async () => {
       const f = await loadFixture(disputed);
       await f.escrow.connect(f.buyer).proposeSplit(f.id, usdt(40));
       await expect(f.escrow.connect(f.traveler).proposeSplit(f.id, usdt(40)))
-        .to.changeTokenBalances(f.token, [f.buyer, f.traveler, f.feeWallet], [usdt(40), usdt('58.8'), usdt('1.2')]);
+        .to.changeTokenBalances(f.token, [f.buyer, f.traveler, f.feeWallet, f.escrow], [usdt(50), usdt('68.8'), usdt('1.2'), usdt(-120)]);
       expect(await status(f)).to.equal(S.Split);
     });
     it('different offers do nothing until they match', async () => {
@@ -176,7 +199,8 @@ describe('RoamlyEscrow', () => {
       await f.escrow.connect(f.buyer).proposeSplit(f.id, usdt(100));
       await f.escrow.connect(f.traveler).proposeSplit(f.id, usdt(0));
       expect(await status(f)).to.equal(S.Disputed);
-      await expect(f.escrow.connect(f.traveler).proposeSplit(f.id, usdt(100))).to.changeTokenBalance(f.token, f.buyer, usdt(100));
+      await expect(f.escrow.connect(f.traveler).proposeSplit(f.id, usdt(100)))
+        .to.changeTokenBalances(f.token, [f.buyer, f.traveler], [usdt(110), usdt(10)]);
       expect(await status(f)).to.equal(S.Refunded);
     });
     it('agreeing on 0 to the buyer counts as released', async () => {
@@ -190,12 +214,12 @@ describe('RoamlyEscrow', () => {
       await expect(f.escrow.connect(f.stranger).proposeSplit(f.id, 0)).to.be.revertedWithCustomError(f.escrow, 'NotParty');
       await expect(f.escrow.connect(f.buyer).proposeSplit(f.id, usdt(101))).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
     });
-    it('splits 50/50 after 30 days without agreement', async () => {
+    it('30 days without agreement: 50/50, and the buyer\'s deposit goes to the traveler', async () => {
       const f = await loadFixture(disputed);
       await expect(f.escrow.settleStalemate(f.id)).to.be.revertedWithCustomError(f.escrow, 'TooEarly');
       await time.increase(30 * DAY);
       await expect(f.escrow.connect(f.stranger).settleStalemate(f.id))
-        .to.changeTokenBalances(f.token, [f.buyer, f.traveler, f.feeWallet, f.escrow], [usdt(50), usdt(49), usdt(1), usdt(-100)]);
+        .to.changeTokenBalances(f.token, [f.buyer, f.traveler, f.feeWallet, f.escrow], [usdt(50), usdt(69), usdt(1), usdt(-120)]);
       expect(await status(f)).to.equal(S.Split);
     });
     it('can be opened before delivery too', async () => {
@@ -267,7 +291,18 @@ describe('RoamlyEscrow', () => {
     await f.escrow.connect(f.buyer).createDeal(f.traveler, usdt(10), by, REF);
     await f.escrow.connect(f.buyer).createDeal(f.stranger, usdt(20), by, REF);
     await f.escrow.connect(f.buyer).cancel(2);
-    expect(await f.token.balanceOf(f.escrow)).to.equal(usdt(10));
+    expect(await f.token.balanceOf(f.escrow)).to.equal(usdt(11)); // deal 1: 10 + 1 deposit
     expect((await f.escrow.getDeal(1)).status).to.equal(S.Funded);
+  });
+
+  it('works with deposits switched off', async () => {
+    const [, buyer, traveler, feeWallet] = await ethers.getSigners();
+    const token = await ethers.deployContract('TestUSDT');
+    const escrow = await ethers.deployContract('RoamlyEscrow', [token, feeWallet.address, 200, 0]);
+    await token.connect(buyer).faucet();
+    await token.connect(buyer).approve(escrow, ethers.MaxUint256);
+    await escrow.connect(buyer).createDeal(traveler, usdt(100), (await time.latest()) + DAY, REF);
+    await escrow.connect(traveler).accept(1); // no deposit, so no approval needed
+    await expect(escrow.connect(buyer).confirmDelivery(1)).to.changeTokenBalance(token, traveler, usdt(98));
   });
 });

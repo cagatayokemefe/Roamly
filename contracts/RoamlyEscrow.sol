@@ -19,12 +19,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///     Accepted/Delivered (within 7 days): buyer openDispute ─▶ Disputed
 ///     Disputed:  both sides propose the same split                      → paid out as agreed
 ///                no agreement within 30 days                            → anyone can settle 50/50
+///   Deposits: the buyer locks a refundable deposit (10%) with the payment, and the traveler locks the
+///   same amount on accept. Deposits always go back to their owner, except:
+///     - deadline passes without delivery → the traveler's deposit goes to the buyer
+///     - dispute ends in the 30-day 50/50 → the buyer's deposit goes to the traveler
+///   The fee is never taken from deposits.
 ///   Once an accepted deal ends (paid, refunded or split), buyer and traveler can each rate the other
 ///   once: 1–5 stars and a short comment. Only real deals can be rated, so reviews can't be faked.
 contract RoamlyEscrow is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint16 public constant MAX_FEE_BPS = 500;          // fee can never exceed 5%
+    uint16 public constant MAX_DEPOSIT_BPS = 3000;     // deposits can never exceed 30%
     uint64 public constant CONFIRM_WINDOW = 7 days;    // buyer's time to confirm or dispute after delivery
     uint64 public constant DISPUTE_WINDOW = 30 days;   // time to agree on a split before it goes 50/50
     uint256 public constant MAX_COMMENT_BYTES = 280;   // ~140 characters, allowing for Turkish letters
@@ -43,6 +49,8 @@ contract RoamlyEscrow is ReentrancyGuard {
         uint128 buyerOffer;
         uint128 travelerOffer;
         bool accepted;       // traveler committed to it — only these deals can be rated
+        uint128 buyerDeposit;    // locked with the payment
+        uint128 travelerDeposit; // locked on accept (same amount); 0 until then
     }
 
     struct Review {
@@ -58,6 +66,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     IERC20 public immutable token;
     address public immutable feeRecipient;
     uint16 public immutable feeBps;
+    uint16 public immutable depositBps;
 
     uint256 public dealCount;
     mapping(uint256 => Deal) private _deals;
@@ -84,16 +93,18 @@ contract RoamlyEscrow is ReentrancyGuard {
     error TooLate();
     error AlreadyRated();
 
-    constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_) {
-        if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS) revert InvalidParams();
+    constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_, uint16 depositBps_) {
+        if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS || depositBps_ > MAX_DEPOSIT_BPS) revert InvalidParams();
         token = token_;
         feeRecipient = feeRecipient_;
         feeBps = feeBps_;
+        depositBps = depositBps_;
     }
 
     // ---------- Buyer ----------
 
-    /// @notice Lock `amount` tokens for `traveler`. Needs a prior token approve() for this contract.
+    /// @notice Lock `amount` tokens plus the buyer deposit for `traveler`.
+    ///         Needs a prior token approve() of amount + depositFor(amount).
     /// @param ref Off-chain request id, so the app can link the deal to its listing.
     function createDeal(address traveler, uint128 amount, uint64 deliverBy, bytes32 ref) external nonReentrant returns (uint256 id) {
         if (traveler == address(0) || traveler == msg.sender || amount == 0 || deliverBy <= block.timestamp) revert InvalidParams();
@@ -104,7 +115,8 @@ contract RoamlyEscrow is ReentrancyGuard {
         d.amount = amount;
         d.deliverBy = deliverBy;
         d.status = Status.Funded;
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        d.buyerDeposit = uint128(depositFor(amount));
+        token.safeTransferFrom(msg.sender, address(this), uint256(amount) + d.buyerDeposit);
         emit DealCreated(id, msg.sender, traveler, amount, deliverBy, ref);
     }
 
@@ -141,13 +153,17 @@ contract RoamlyEscrow is ReentrancyGuard {
 
     // ---------- Traveler ----------
 
-    function accept(uint256 id) external {
+    /// @notice Commit to carrying the item. Locks the traveler deposit (same as the buyer's),
+    ///         so needs a prior token approve() of that amount.
+    function accept(uint256 id) external nonReentrant {
         Deal storage d = _deals[id];
         if (msg.sender != d.traveler) revert NotTraveler();
         _requireStatus(d, Status.Funded);
         if (block.timestamp > d.deliverBy) revert TooLate();
         d.status = Status.Accepted;
         d.accepted = true;
+        d.travelerDeposit = d.buyerDeposit;
+        if (d.travelerDeposit > 0) token.safeTransferFrom(msg.sender, address(this), d.travelerDeposit);
         emit DealAccepted(id);
     }
 
@@ -179,6 +195,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     }
 
     /// @notice Refund the buyer when the deadline passed without the item being marked delivered.
+    ///         If the traveler had accepted, their deposit goes to the buyer too.
     function claimRefund(uint256 id) external nonReentrant {
         Deal storage d = _deals[id];
         if (d.status != Status.Funded && d.status != Status.Accepted) revert WrongStatus(d.status);
@@ -198,15 +215,16 @@ contract RoamlyEscrow is ReentrancyGuard {
         else if (msg.sender == d.traveler) d.travelerOffer = toBuyer + 1;
         else revert NotParty();
         emit SplitProposed(id, msg.sender, toBuyer);
-        if (d.buyerOffer == d.travelerOffer) _settle(id, d, toBuyer);
+        if (d.buyerOffer == d.travelerOffer) _settle(id, d, toBuyer, false);
     }
 
     /// @notice No agreement after 30 days: split evenly so funds are never stuck.
+    ///         The buyer who opened the dispute loses their deposit to the traveler.
     function settleStalemate(uint256 id) external nonReentrant {
         Deal storage d = _deals[id];
         _requireStatus(d, Status.Disputed);
         if (block.timestamp < d.disputedAt + DISPUTE_WINDOW) revert TooEarly();
-        _settle(id, d, d.amount / 2);
+        _settle(id, d, d.amount / 2, true);
     }
 
     // ---------- Ratings ----------
@@ -245,38 +263,49 @@ contract RoamlyEscrow is ReentrancyGuard {
         return amount * feeBps / 10_000;
     }
 
+    function depositFor(uint256 amount) public view returns (uint256) {
+        return amount * depositBps / 10_000;
+    }
+
     // ---------- Internal ----------
 
     function _requireStatus(Deal storage d, Status s) private view {
         if (d.status != s) revert WrongStatus(d.status);
     }
 
+    /// @dev Refunds only happen before acceptance (no traveler deposit yet) or after a missed
+    ///      deadline (traveler deposit forfeited), so the buyer gets everything locked.
     function _refund(uint256 id, Deal storage d) private {
         d.status = Status.Refunded;
-        token.safeTransfer(d.buyer, d.amount);
-        emit DealRefunded(id, d.amount);
+        uint256 toBuyer = uint256(d.amount) + d.buyerDeposit + d.travelerDeposit;
+        token.safeTransfer(d.buyer, toBuyer);
+        emit DealRefunded(id, toBuyer);
     }
 
     function _release(uint256 id, Deal storage d) private {
         d.status = Status.Released;
-        (uint256 net, uint256 fee) = _payTraveler(d, d.amount);
+        if (d.buyerDeposit > 0) token.safeTransfer(d.buyer, d.buyerDeposit);
+        (uint256 net, uint256 fee) = _payTraveler(d, d.amount, d.travelerDeposit);
         emit DealReleased(id, net, fee);
     }
 
-    function _settle(uint256 id, Deal storage d, uint256 toBuyer) private {
+    /// @param stalemate true when the 30-day window ran out: the buyer's deposit goes to the traveler
+    function _settle(uint256 id, Deal storage d, uint256 toBuyer, bool stalemate) private {
         uint256 toTraveler = d.amount - toBuyer;
         d.status = toBuyer == d.amount ? Status.Refunded : toBuyer == 0 ? Status.Released : Status.Split;
-        if (toBuyer > 0) token.safeTransfer(d.buyer, toBuyer);
-        (uint256 net, uint256 fee) = _payTraveler(d, toTraveler);
-        emit DisputeSettled(id, toBuyer, net, fee);
+        uint256 buyerGets = toBuyer + (stalemate ? 0 : d.buyerDeposit);
+        uint256 travelerExtra = d.travelerDeposit + (stalemate ? d.buyerDeposit : 0);
+        if (buyerGets > 0) token.safeTransfer(d.buyer, buyerGets);
+        (uint256 net, uint256 fee) = _payTraveler(d, toTraveler, travelerExtra);
+        emit DisputeSettled(id, buyerGets, net, fee);
     }
 
-    /// @dev Fee is taken only from the traveler's share; refunds are never charged.
-    function _payTraveler(Deal storage d, uint256 gross) private returns (uint256 net, uint256 fee) {
-        if (gross == 0) return (0, 0);
+    /// @dev Fee is taken only from the traveler's share of the payment — never from refunds or deposits.
+    /// @param deposits deposit money returned to (or won by) the traveler, added fee-free
+    function _payTraveler(Deal storage d, uint256 gross, uint256 deposits) private returns (uint256 net, uint256 fee) {
         fee = feeFor(gross);
-        net = gross - fee;
+        net = gross - fee + deposits;
         if (fee > 0) token.safeTransfer(feeRecipient, fee);
-        token.safeTransfer(d.traveler, net);
+        if (net > 0) token.safeTransfer(d.traveler, net);
     }
 }

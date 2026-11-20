@@ -22,7 +22,8 @@ const ESCROW_ABI = [
   'function claimRefund(uint256 id)',
   'function proposeSplit(uint256 id, uint128 toBuyer)',
   'function settleStalemate(uint256 id)',
-  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted))',
+  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted, uint128 buyerDeposit, uint128 travelerDeposit))',
+  'function depositBps() view returns (uint16)',
   'function rate(uint256 id, uint8 stars, string comment)',
   'function getReviews(uint256 id) view returns (tuple(uint8 stars, string comment) byBuyer, tuple(uint8 stars, string comment) byTraveler)',
   'function reputation(address) view returns (uint64 count, uint64 totalStars)',
@@ -68,7 +69,7 @@ const CHAIN_ACTIONS = {
 
 const FINAL_DEALS = ['Released','Refunded','Split'];
 const MAX_COMMENT = 140; // characters; the contract allows 280 bytes, enough for 140 Turkish letters
-const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false, reps:{}};
+const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false, reps:{}, depositBps:0n};
 const hasEthers = typeof ethers !== 'undefined';
 
 // ---------- Helpers ----------
@@ -86,6 +87,8 @@ function canPayOnChain(trip){
 function eurToUnits(eur){
   return ethers.parseUnits((Math.round(eur * EUR_TO_USDT * 100) / 100).toFixed(2), wallet.decimals);
 }
+// Refundable deposit each side locks — same formula as the contract's depositFor()
+const depositFor = units => BigInt(units) * wallet.depositBps / 10000n;
 function fmtUnits(units, decimals = wallet.decimals, symbol = wallet.symbol){
   const n = Number(ethers.formatUnits(BigInt(units), decimals));
   return `${n.toLocaleString('en-GB', {maximumFractionDigits:2})} ${symbol}`;
@@ -155,9 +158,10 @@ async function setupWallet(account){
     const signer = await provider.getSigner(wallet.account);
     wallet.escrow = new ethers.Contract(wallet.dep.escrow, ESCROW_ABI, signer);
     wallet.token = new ethers.Contract(wallet.dep.token, TOKEN_ABI, signer);
-    const [decimals, symbol] = await Promise.all([wallet.token.decimals(), wallet.token.symbol()]);
+    const [decimals, symbol, depositBps] = await Promise.all([wallet.token.decimals(), wallet.token.symbol(), wallet.escrow.depositBps()]);
     wallet.decimals = Number(decimals);
     wallet.symbol = symbol;
+    wallet.depositBps = BigInt(depositBps);
     await syncDeals();
     await loadReputations();
     await refreshBalance();
@@ -196,24 +200,31 @@ async function sendTx(pending, fn){
   }
 }
 
-// Approve + lock the buyer's payment. Returns the chain record for the request, or null.
-async function payOnChain(req, trip){
-  const amount = eurToUnits(req.price);
+// Check the wallet holds `units` and let the escrow take them. Returns false if it can't.
+async function ensureFunds(units){
   await refreshBalance();
-  if(wallet.balance !== null && wallet.balance < amount){
-    toast(`You need ${fmtUnits(amount)} but have ${fmtUnits(wallet.balance)}.` + (wallet.dep.testToken ? ' Use “Get test USDT” on your dashboard.' : ''));
-    return null;
+  if(wallet.balance !== null && wallet.balance < units){
+    toast(`You need ${fmtUnits(units)} but have ${fmtUnits(wallet.balance)}.` + (wallet.dep.testToken ? ' Use “Get test USDT” on your dashboard.' : ''));
+    return false;
   }
   const allowance = await wallet.token.allowance(wallet.account, wallet.dep.escrow);
-  if(allowance < amount && !await sendTx(`Allowing Roamly escrow to take ${fmtUnits(amount)}`, () => wallet.token.approve(wallet.dep.escrow, amount))) return null;
+  if(allowance >= units) return true;
+  return !!await sendTx(`Allowing Roamly escrow to take ${fmtUnits(units)}`, () => wallet.token.approve(wallet.dep.escrow, units));
+}
+
+// Approve + lock the buyer's payment and deposit. Returns the chain record for the request, or null.
+async function payOnChain(req, trip){
+  const amount = eurToUnits(req.price);
+  const deposit = depositFor(amount);
+  if(!await ensureFunds(amount + deposit)) return null;
   const deliverBy = Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400;
-  const receipt = await sendTx(`Locking ${fmtUnits(amount)} in escrow`,
+  const receipt = await sendTx(`Locking ${fmtUnits(amount)} + ${fmtUnits(deposit)} deposit in escrow`,
     () => wallet.escrow.createDeal(trip.wallet, amount, deliverBy, ethers.encodeBytes32String(req.id)));
   if(!receipt) return null;
   const created = receipt.logs.map(l => { try { return wallet.escrow.interface.parseLog(l); } catch { return null; } })
     .find(l => l?.name === 'DealCreated');
   refreshBalance();
-  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), decimals:wallet.decimals,
+  return {dealId:created.args.id.toString(), chainId:wallet.chainId, escrow:wallet.dep.escrow, amount:amount.toString(), deposit:deposit.toString(), decimals:wallet.decimals,
           symbol:wallet.symbol, buyer:wallet.account, traveler:trip.wallet, txs:[receipt.hash]};
 }
 
@@ -222,6 +233,8 @@ async function chainAction(req, act, ...args){
   if(req.chain.chainId !== wallet.chainId){ toast(`This deal lives on ${networkName(req.chain.chainId)} — switch network in MetaMask.`); return false; }
   if(!isCurrentContract(req)){ toast('This deal belongs to an older Roamly contract.'); return false; }
   const a = CHAIN_ACTIONS[act];
+  // Accepting locks the traveler's deposit, so the escrow needs permission to take it first
+  if(act === 'accept' && !await ensureFunds(BigInt(req.chain.deposit || 0))) return false;
   const receipt = await sendTx(a.pending, () => wallet.escrow[a.fn](req.chain.dealId, ...args));
   if(receipt){
     req.chain.txs.push(receipt.hash);
@@ -237,14 +250,15 @@ async function chainAction(req, act, ...args){
 
 // ---------- Reading deals back from the chain ----------
 function chainHistoryLabel(req, s){
-  const amt = fmtDeal(req, req.chain.amount);
+  const d = req.deal || {};
+  const refunded = fmtDeal(req, BigInt(req.chain.amount) + BigInt(d.buyerDeposit || 0) + BigInt(d.travelerDeposit || 0));
   const net = fmtDeal(req, BigInt(req.chain.amount) * BigInt(10000 - (DEPLOYMENTS[req.chain.chainId]?.feeBps ?? 200)) / 10000n);
   return {
-    Accepted:'Accepted — funds stay locked in the contract',
+    Accepted:`Accepted — traveler locked a ${fmtDeal(req, d.travelerDeposit || 0)} deposit too`,
     Delivered:'Traveler marked it delivered — 7 days to confirm or dispute',
     Disputed:`Dispute opened${req.dispute ? ` — ${req.dispute.reason.toLowerCase()}` : ''} — funds frozen in the contract`,
-    Released:`Released — ${net} to traveler (2% fee)`,
-    Refunded:`Refunded — ${amt} back to buyer`,
+    Released:`Released — ${net} to traveler (2% fee), deposits returned`,
+    Refunded:`Refunded — ${refunded} back to buyer${BigInt(d.travelerDeposit || 0) > 0n && d.status === 'Refunded' && req.chain.intent === 'claim-refund' ? ', including the traveler’s deposit' : ''}`,
     Split:'Settled by split — paid out by the contract',
   }[s];
 }
@@ -262,7 +276,8 @@ async function syncDeal(req){
   const s = DEAL[Number(d.status)];
   const prev = req.deal?.status;
   req.deal = {status:s, deliverBy:Number(d.deliverBy), deliveredAt:Number(d.deliveredAt), disputedAt:Number(d.disputedAt),
-              buyerOffer:d.buyerOffer.toString(), travelerOffer:d.travelerOffer.toString(), accepted:d.accepted};
+              buyerOffer:d.buyerOffer.toString(), travelerOffer:d.travelerOffer.toString(), accepted:d.accepted,
+              buyerDeposit:d.buyerDeposit.toString(), travelerDeposit:d.travelerDeposit.toString()};
   let reviewsChanged = false;
   if(d.accepted && FINAL_DEALS.includes(s)){
     const [byBuyer, byTraveler] = await wallet.escrow.getReviews(req.chain.dealId);
@@ -412,7 +427,9 @@ function renderWallet(){
 // Meta line + buttons for an on-chain request on the dashboard
 function chainItemMeta(req){
   const last = req.chain.txs[req.chain.txs.length - 1];
-  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))} in contract · ${txLink(req.chain.chainId, last)}</p>${reviewLines(req)}`;
+  const deposit = BigInt(req.chain.deposit || 0);
+  const depText = deposit > 0n ? ` + ${esc(fmtDeal(req, deposit))} deposit${req.deal?.accepted ? ' each' : ''}` : '';
+  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))}${depText} in contract · ${txLink(req.chain.chainId, last)}</p>${reviewLines(req)}`;
 }
 
 function chainHint(req, side){
@@ -421,10 +438,10 @@ function chainHint(req, side){
   const now = nowSec();
   if(d.status === 'Funded') return side === 'buyer'
     ? `Funds are locked in the contract. If ${esc(tripById(req.tripId)?.traveler || 'the traveler')} doesn't accept, cancel any time for a full refund.`
-    : 'The buyer’s money is already locked in the contract — accept to commit to carrying it.';
+    : `The buyer’s money is already locked in the contract. Accepting locks your refundable ${esc(fmtDeal(req, req.chain.deposit || 0))} deposit — you only lose it if you miss the delivery deadline.`;
   if(d.status === 'Accepted') return now > d.deliverBy
-    ? 'The delivery deadline has passed — the buyer can reclaim the funds.'
-    : `Deliver by ${fmtSecDay(d.deliverBy)}, or the buyer can reclaim the funds.`;
+    ? 'The delivery deadline has passed — the buyer can reclaim the funds plus the traveler’s deposit.'
+    : `Deliver by ${fmtSecDay(d.deliverBy)}, or the buyer can reclaim the funds plus the traveler’s deposit.`;
   if(d.status === 'Delivered'){
     const due = d.deliveredAt + CONFIRM_WINDOW;
     return now >= due
@@ -465,7 +482,9 @@ function renderPayMode(trip){
   const note = $('pay-note');
   const price = parseFloat($('price-input').value) || 0;
   if(onChain){
-    note.innerHTML = `Pays ${price > 0 ? `<b>${esc(fmtUnits(eurToUnits(price)))}</b> (€${price} × ${EUR_TO_USDT})` : 'the price in ' + esc(wallet.symbol)} into the escrow contract. ` +
+    const units = eurToUnits(price);
+    note.innerHTML = `Pays ${price > 0 ? `<b>${esc(fmtUnits(units))}</b> (€${price} × ${EUR_TO_USDT})` : 'the price in ' + esc(wallet.symbol)} into the escrow contract` +
+      (wallet.depositBps > 0n ? `, plus a refundable ${price > 0 ? `<b>${esc(fmtUnits(depositFor(units)))}</b>` : `${wallet.depositBps / 100n}%`} deposit you get back unless a dispute runs out the 30 days. ` : '. ') +
       `${trip.mine ? 'The traveler' : esc(trip.traveler)} must deliver by ${fmtSecDay(Math.floor(parseDay(trip.date).getTime() / 1000) + DELIVER_GRACE_DAYS * 86400)} or you can reclaim it.`;
   } else if(trip?.wallet && !chainReady()){
     note.innerHTML = `${esc(trip.traveler)} accepts on-chain payment. <span class="link" onclick="connectWallet()">Connect your wallet</span> to pay through the escrow contract.`;
@@ -494,8 +513,8 @@ function renderChainDispute(req){
   const due = d.disputedAt + DISPUTE_WINDOW;
   const canSettle = nowSec() >= due;
   $('dc-deadline').textContent = canSettle
-    ? 'No agreement after 30 days — anyone can now split the funds 50/50.'
-    : `If you don't agree by ${fmtSecDay(due)}, the contract lets anyone split it 50/50.`;
+    ? 'No agreement after 30 days — anyone can now split the payment 50/50. The buyer’s deposit goes to the traveler.'
+    : `If you don't agree by ${fmtSecDay(due)}, the contract lets anyone split the payment 50/50 — and the buyer’s ${fmtDeal(req, d.buyerDeposit || 0)} deposit goes to the traveler. Agree before then and both deposits are returned.`;
   $('dc-settle').style.display = canSettle ? 'inline-flex' : 'none';
 }
 

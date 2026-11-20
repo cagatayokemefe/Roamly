@@ -286,7 +286,7 @@ async function sendRequest(){
     const chain = await payOnChain(req, trip);
     if(!chain) return;
     req.chain = chain;
-    req.history[0].label = `Request sent — ${fmtDeal(req, chain.amount)} locked in the escrow contract`;
+    req.history[0].label = `Request sent — ${fmtDeal(req, chain.amount)}${BigInt(chain.deposit) > 0n ? ` + ${fmtDeal(req, chain.deposit)} deposit` : ''} locked in the escrow contract`;
   }
   state.requests.push(req);
   save();
@@ -437,7 +437,10 @@ function renderDispute(){
 
   const items = req.history.map(h => ({label:h.label, sub:fmtStamp(h.at), cls:'done'}));
   if(req.status === 'escrow'){
-    items.push({label:'Dispute', sub:req.chain ? 'Opening one freezes the funds in the contract' : 'Add your details below — funds stay locked until resolved', cls:'active'});
+    items.push({label:'Dispute', sub:req.chain
+      ? `Opening one freezes the funds. If you can't agree a split within 30 days, it's settled 50/50 and your deposit goes to the traveler.` +
+        (req.deal?.status === 'Accepted' ? ` If the item simply never arrived, you can instead wait until ${fmtSecDay(req.deal.deliverBy)} and reclaim everything plus the traveler's deposit.` : '')
+      : 'Add your details below — funds stay locked until resolved', cls:'active'});
     items.push({label:'Resolution', sub:'Funds released to traveler, or refunded to buyer', cls:''});
   } else if(req.status === 'disputed'){
     items[items.length - 1].cls = 'active';

@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { ethers, network } = require('hardhat');
 
-const FEE_BPS = 200; // 2%
+const FEE_BPS = 200;      // 2%
+const DEPOSIT_BPS = 1000; // 10% refundable deposit from buyer and traveler
 const LOCAL_CHAIN = 31337n;
 // Public networks go in deployments.js (committed); the local chain in deployments.local.js (gitignored)
 const outFile = chainId => path.join(__dirname, '..', chainId === LOCAL_CHAIN ? 'deployments.local.js' : 'deployments.js');
@@ -32,14 +33,14 @@ async function main(){
     console.log(`TestUSDT     ${tokenAddress}`);
   }
 
-  const escrow = await ethers.deployContract('RoamlyEscrow', [tokenAddress, feeRecipient, FEE_BPS]);
+  const escrow = await ethers.deployContract('RoamlyEscrow', [tokenAddress, feeRecipient, FEE_BPS, DEPOSIT_BPS]);
   await escrow.waitForDeployment();
   const escrowAddress = await escrow.getAddress();
-  console.log(`RoamlyEscrow ${escrowAddress}  (fee ${FEE_BPS / 100}% → ${feeRecipient})`);
+  console.log(`RoamlyEscrow ${escrowAddress}  (fee ${FEE_BPS / 100}% → ${feeRecipient}, deposit ${DEPOSIT_BPS / 100}%)`);
 
   const file = outFile(chainId);
   const all = readDeployments(file);
-  all[String(chainId)] = { network: network.name, escrow: escrowAddress, token: tokenAddress, testToken, feeRecipient, feeBps: FEE_BPS, deployedAt: new Date().toISOString() };
+  all[String(chainId)] = { network: network.name, escrow: escrowAddress, token: tokenAddress, testToken, feeRecipient, feeBps: FEE_BPS, depositBps: DEPOSIT_BPS, deployedAt: new Date().toISOString() };
   const global = chainId === LOCAL_CHAIN ? 'ROAMLY_LOCAL_DEPLOYMENTS' : 'ROAMLY_DEPLOYMENTS';
   fs.writeFileSync(file, `// Written by scripts/deploy.js — contract addresses per chain id\nwindow.${global} = ${JSON.stringify(all, null, 2)};\n`);
   console.log(`Saved to ${path.basename(file)}`);

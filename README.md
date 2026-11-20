@@ -24,15 +24,18 @@ App data is saved in the browser's `localStorage`. Use **Reset demo data** in th
 
 | Situation | What happens |
 | --- | --- |
-| Buyer sends a request | Payment is locked in the contract |
+| Buyer sends a request | Payment + a 10% refundable deposit are locked in the contract |
+| Traveler accepts | Traveler locks the same deposit |
 | Traveler hasn't accepted yet | Buyer can cancel, or traveler can decline → full refund |
-| Buyer confirms delivery | Traveler is paid, minus the 2% fee |
+| Buyer confirms delivery | Traveler is paid, minus the 2% fee; both deposits are returned |
 | Traveler marks delivered, buyer stays silent 7 days | Anyone can release the payment to the traveler |
-| Not delivered by trip date + 14 days | Buyer can reclaim the full amount |
+| Not delivered by trip date + 14 days | Buyer can reclaim the full amount **plus the traveler's deposit** |
 | Buyer opens a dispute (before delivery, or within 7 days after) | Funds freeze; both sides propose how much goes back to the buyer — when the proposals match, it pays out |
-| No agreement within 30 days | Anyone can settle it 50/50 |
+| Dispute settled by agreement | Paid out as agreed; both deposits are returned |
+| No agreement within 30 days | Anyone can settle it 50/50 — **the buyer's deposit goes to the traveler** |
 
-- **Fee:** 2%, taken only from what the traveler receives. Refunds are never charged. It's fixed at deploy time and the contract refuses anything above 5%.
+- **Deposits:** 10% from each side, returned in every other case. They make stalling a dispute costly for the buyer and accepting without delivering costly for the traveler. Set at deploy time, capped at 30%.
+- **Fee:** 2%, taken only from what the traveler receives. Refunds and deposits are never charged. It's fixed at deploy time and the contract refuses anything above 5%.
 - **Ratings:** once an accepted deal is paid out, refunded or split, each side can rate the other once — 1–5 stars and up to 140 characters. Requests that were never accepted can't be rated.
 - **Currency:** USDT for now. The token is a deploy setting (`TOKEN_ADDRESS`), so it can be swapped without changing the contract.
 
