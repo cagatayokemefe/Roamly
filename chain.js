@@ -22,10 +22,13 @@ const ESCROW_ABI = [
   'function claimRefund(uint256 id)',
   'function proposeSplit(uint256 id, uint128 toBuyer)',
   'function settleStalemate(uint256 id)',
-  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer))',
+  'function getDeal(uint256 id) view returns (tuple(address buyer, address traveler, uint128 amount, uint64 deliverBy, uint64 deliveredAt, uint64 disputedAt, uint8 status, uint128 buyerOffer, uint128 travelerOffer, bool accepted))',
+  'function rate(uint256 id, uint8 stars, string comment)',
+  'function getReviews(uint256 id) view returns (tuple(uint8 stars, string comment) byBuyer, tuple(uint8 stars, string comment) byTraveler)',
+  'function reputation(address) view returns (uint64 count, uint64 totalStars)',
   'event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref)',
   'error InvalidParams()', 'error NotBuyer()', 'error NotTraveler()', 'error NotParty()',
-  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()',
+  'error WrongStatus(uint8 current)', 'error TooEarly()', 'error TooLate()', 'error AlreadyRated()',
 ];
 const TOKEN_ABI = [
   'function balanceOf(address) view returns (uint256)',
@@ -47,6 +50,7 @@ const CHAIN_ERRORS = {
   TooEarly:'Too early — the waiting period hasn’t ended yet.',
   TooLate:'Too late — that window has closed.',
   InvalidParams:'The contract rejected these details.',
+  AlreadyRated:'You’ve already rated this deal — ratings can’t be changed.',
 };
 const CHAIN_ACTIONS = {
   cancel:        {fn:'cancel',          pending:'Cancelling and refunding'},
@@ -59,9 +63,12 @@ const CHAIN_ACTIONS = {
   'claim-refund':{fn:'claimRefund',     pending:'Claiming your refund'},
   propose:       {fn:'proposeSplit',    pending:'Sending your offer'},
   settle:        {fn:'settleStalemate', pending:'Settling 50/50'},
+  rate:          {fn:'rate',            pending:'Saving your rating on-chain'},
 };
 
-const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false};
+const FINAL_DEALS = ['Released','Refunded','Split'];
+const MAX_COMMENT = 140; // characters; the contract allows 280 bytes, enough for 140 Turkish letters
+const wallet = {account:null, chainId:null, dep:null, escrow:null, token:null, decimals:18, symbol:'USDT', balance:null, busy:false, reps:{}};
 const hasEthers = typeof ethers !== 'undefined';
 
 // ---------- Helpers ----------
@@ -152,6 +159,7 @@ async function setupWallet(account){
     wallet.decimals = Number(decimals);
     wallet.symbol = symbol;
     await syncDeals();
+    await loadReputations();
     await refreshBalance();
   }
   renderAll();
@@ -254,8 +262,15 @@ async function syncDeal(req){
   const s = DEAL[Number(d.status)];
   const prev = req.deal?.status;
   req.deal = {status:s, deliverBy:Number(d.deliverBy), deliveredAt:Number(d.deliveredAt), disputedAt:Number(d.disputedAt),
-              buyerOffer:d.buyerOffer.toString(), travelerOffer:d.travelerOffer.toString()};
-  if(prev === s){ save(); return false; }
+              buyerOffer:d.buyerOffer.toString(), travelerOffer:d.travelerOffer.toString(), accepted:d.accepted};
+  let reviewsChanged = false;
+  if(d.accepted && FINAL_DEALS.includes(s)){
+    const [byBuyer, byTraveler] = await wallet.escrow.getReviews(req.chain.dealId);
+    const reviews = {byBuyer:{stars:Number(byBuyer.stars), comment:byBuyer.comment}, byTraveler:{stars:Number(byTraveler.stars), comment:byTraveler.comment}};
+    reviewsChanged = JSON.stringify(reviews) !== JSON.stringify(req.reviews);
+    req.reviews = reviews;
+  }
+  if(prev === s){ save(); return reviewsChanged; }
   const next = appStatusFor(req, s);
   const label = chainHistoryLabel(req, s);
   if(next !== req.status) setStatus(req, next, label);
@@ -270,7 +285,97 @@ async function syncDeals(){
   for(const req of state.requests.filter(isCurrentContract)){
     try { changed = await syncDeal(req) || changed; } catch {}
   }
+  changed = await loadReputations() || changed;
   if(changed) renderAll();
+}
+
+// ---------- Ratings ----------
+// On-chain reputation for every wallet the app knows about (traveler wallets, deal parties)
+async function loadReputations(){
+  if(!chainReady()) return false;
+  const addrs = new Set([...state.trips.map(t => t.wallet), ...state.requests.filter(isCurrentContract).flatMap(r => [r.chain.buyer, r.chain.traveler])]
+    .filter(Boolean).map(a => a.toLowerCase()));
+  let changed = false;
+  for(const a of addrs){
+    try {
+      const rep = await wallet.escrow.reputation(a);
+      const next = {count:Number(rep.count), total:Number(rep.totalStars)};
+      if(JSON.stringify(next) !== JSON.stringify(wallet.reps[a])){ wallet.reps[a] = next; changed = true; }
+    } catch {}
+  }
+  return changed;
+}
+
+const repOf = addr => addr ? wallet.reps[addr.toLowerCase()] : null;
+const starsText = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+
+// "★ 4.5 · 2 on-chain ratings" for a trip whose traveler linked a wallet, else null (use the demo rating)
+function onChainRating(trip, short = false){
+  const rep = repOf(trip?.wallet);
+  if(!rep) return null;
+  if(!rep.count) return short ? 'New traveler' : 'No ratings yet';
+  const avg = (rep.total / rep.count).toFixed(1);
+  return short ? `★ ${avg} on-chain` : `★ ${avg} · ${rep.count} on-chain rating${rep.count === 1 ? '' : 's'}`;
+}
+
+// Comments buyers left for this traveler, from deals this browser knows about
+function reviewsFor(trip){
+  if(!trip?.wallet) return [];
+  return state.requests
+    .filter(r => r.reviews?.byBuyer?.stars && sameAddr(r.chain?.traveler, trip.wallet))
+    .map(r => ({...r.reviews.byBuyer, item:r.item}));
+}
+
+function canRate(req, side){
+  if(!req.chain || !req.deal?.accepted || !FINAL_DEALS.includes(req.deal.status)) return false;
+  return !(side === 'buyer' ? req.reviews?.byBuyer?.stars : req.reviews?.byTraveler?.stars);
+}
+
+function reviewLines(req){
+  const r = req.reviews;
+  if(!r) return '';
+  const line = (who, rv) => rv?.stars
+    ? `<p class="review-line"><span class="stars">${starsText(rv.stars)}</span> ${who}${rv.comment ? ` — “${esc(rv.comment)}”` : ''}</p>` : '';
+  return line('from buyer', r.byBuyer) + line('from traveler', r.byTraveler);
+}
+
+let rateTarget = null, rateStars = 0;
+function openRateDialog(req){
+  const role = chainRole(req);
+  if(!role){ toast('Connect the buyer’s or traveler’s wallet to rate this deal.'); return; }
+  if(!canRate(req, role)){ toast(CHAIN_ERRORS.AlreadyRated); return; }
+  rateTarget = req.id;
+  const trip = tripById(req.tripId);
+  $('rate-title').textContent = role === 'buyer' ? `Rate ${trip?.mine ? 'the traveler' : trip?.traveler || 'the traveler'}` : 'Rate the buyer';
+  $('rate-sub').textContent = `${req.item} · saved on-chain for good — it can’t be edited or deleted.`;
+  $('rate-comment').value = '';
+  setRateStars(0);
+  updateRateCount();
+  $('rate-dialog').showModal();
+}
+function setRateStars(n){
+  rateStars = n;
+  document.querySelectorAll('#rate-stars button').forEach((b, i) => {
+    b.classList.toggle('on', i < n);
+    b.setAttribute('aria-pressed', String(i < n));
+  });
+  $('rate-error').textContent = '';
+}
+function updateRateCount(){
+  $('rate-count').textContent = `${[...$('rate-comment').value].length} / ${MAX_COMMENT}`;
+}
+async function submitRating(){
+  const req = reqById(rateTarget);
+  const comment = $('rate-comment').value.trim();
+  if(!req) return;
+  if(!rateStars){ $('rate-error').textContent = 'Pick 1 to 5 stars.'; return; }
+  if([...comment].length > MAX_COMMENT){ $('rate-error').textContent = `Keep the comment under ${MAX_COMMENT} characters.`; return; }
+  $('rate-dialog').close();
+  if(await chainAction(req, 'rate', rateStars, comment)){
+    await loadReputations();
+    renderAll();
+    toast('Thanks — your rating is saved on-chain');
+  }
 }
 
 // ---------- Rendering ----------
@@ -307,7 +412,7 @@ function renderWallet(){
 // Meta line + buttons for an on-chain request on the dashboard
 function chainItemMeta(req){
   const last = req.chain.txs[req.chain.txs.length - 1];
-  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))} in contract · ${txLink(req.chain.chainId, last)}</p>`;
+  return `<p class="chain-meta">⛓ Deal #${esc(req.chain.dealId)} · ${esc(fmtDeal(req, req.chain.amount))} in contract · ${txLink(req.chain.chainId, last)}</p>${reviewLines(req)}`;
 }
 
 function chainHint(req, side){
@@ -347,6 +452,7 @@ function chainButtons(req, side){
     if(d.status === 'Delivered' && now >= d.deliveredAt + CONFIRM_WINDOW) out.push(b('claim-pay', 'Claim payment', 'btn-primary'));
   }
   if(d.status === 'Disputed') out.push(b('dispute', 'View dispute'));
+  if(canRate(req, side)) out.push(b('rate', side === 'buyer' ? '★ Rate the traveler' : '★ Rate the buyer', 'btn-sand'));
   return out.join('');
 }
 

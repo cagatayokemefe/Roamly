@@ -162,7 +162,7 @@ function renderTrips(){
   $('trip-grid').innerHTML = trips.length ? trips.map((t, i) => {
     const left = slotsLeft(t);
     const free = LIMIT - allowanceUsed(t);
-    const rating = t.mine ? 'Your trip' : `★ ${t.rating.toFixed(1)}`;
+    const rating = t.mine ? 'Your trip' : onChainRating(t, true) || `★ ${t.rating.toFixed(1)}`;
     return `
       <button class="trip-card ${left ? '' : 'full'}" data-trip="${t.id}">
         <div class="trip-top ${i % 2 ? 'mint' : 'sand'}">
@@ -214,7 +214,10 @@ function renderDetail(){
   $('side-init').textContent = initials(trip.traveler);
   $('side-name').textContent = trip.traveler;
   $('side-trips').textContent = trip.completed ?? 0;
-  $('side-rating').textContent = trip.mine ? 'New traveler' : `★ ${trip.rating.toFixed(1)}`;
+  $('side-rating').textContent = onChainRating(trip) || (trip.mine ? 'New traveler' : `★ ${trip.rating.toFixed(1)}`);
+  const reviews = reviewsFor(trip);
+  $('side-reviews').innerHTML = reviews.slice(-3).reverse().map(r =>
+    `<div class="review-line"><span class="stars">${starsText(r.stars)}</span>${r.comment ? ` “${esc(r.comment)}”` : ''} <span class="muted">· ${esc(r.item)}</span></div>`).join('');
   $('limit-label').textContent = trip.mine ? 'Your duty-free allowance' : `${trip.traveler.split(' ')[0]}'s duty-free allowance`;
 
   let blocked = '';
@@ -401,6 +404,7 @@ function handleDashAction(act, id){
   const req = reqById(id);
   if(!req) return;
   if(act === 'dispute'){ state.disputeId = id; showView('dispute'); return; }
+  if(act === 'rate'){ openRateDialog(req); return; }
   if(req.chain){
     chainAction(req, act).then(ok => ok && toast(CHAIN_DONE[act] || 'Done — the contract is updated'));
     return;

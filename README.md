@@ -13,6 +13,7 @@ Payments can run through a **smart contract on BNB Smart Chain**: the buyer's mo
 - **Request an item** — live allowance check per trip: categories the traveler accepts, phones blocked (IMEI rules), and the €430 limit shared across all requests on that trip.
 - **On-chain escrow** — on trips whose traveler linked a wallet, the request pays USDT into the escrow contract through MetaMask. Trips without a wallet run in demo escrow.
 - **Dashboard** — money in escrow / waiting / earned, your sent requests, incoming requests on your own trips, and your wallet balance (with a test-USDT faucet on testnet).
+- **Ratings** — after an on-chain deal ends, buyer and traveler rate each other (1–5 stars + a short comment). Ratings live in the contract, so they can't be faked, edited or deleted, and traveler profiles show the on-chain average.
 - **Disputes** — on-chain, buyer and traveler each propose a split and the contract pays out when they match; demo requests are resolved by playing the reviewer.
 
 App data is saved in the browser's `localStorage`. Use **Reset demo data** in the footer to restore the sample trips.
@@ -32,6 +33,7 @@ App data is saved in the browser's `localStorage`. Use **Reset demo data** in th
 | No agreement within 30 days | Anyone can settle it 50/50 |
 
 - **Fee:** 2%, taken only from what the traveler receives. Refunds are never charged. It's fixed at deploy time and the contract refuses anything above 5%.
+- **Ratings:** once an accepted deal is paid out, refunded or split, each side can rate the other once — 1–5 stars and up to 140 characters. Requests that were never accepted can't be rated.
 - **Currency:** USDT for now. The token is a deploy setting (`TOKEN_ADDRESS`), so it can be swapped without changing the contract.
 
 ## Run it

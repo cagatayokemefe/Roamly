@@ -19,12 +19,15 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///     Accepted/Delivered (within 7 days): buyer openDispute ─▶ Disputed
 ///     Disputed:  both sides propose the same split                      → paid out as agreed
 ///                no agreement within 30 days                            → anyone can settle 50/50
+///   Once an accepted deal ends (paid, refunded or split), buyer and traveler can each rate the other
+///   once: 1–5 stars and a short comment. Only real deals can be rated, so reviews can't be faked.
 contract RoamlyEscrow is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint16 public constant MAX_FEE_BPS = 500;          // fee can never exceed 5%
     uint64 public constant CONFIRM_WINDOW = 7 days;    // buyer's time to confirm or dispute after delivery
     uint64 public constant DISPUTE_WINDOW = 30 days;   // time to agree on a split before it goes 50/50
+    uint256 public constant MAX_COMMENT_BYTES = 280;   // ~140 characters, allowing for Turkish letters
 
     enum Status { None, Funded, Accepted, Delivered, Disputed, Released, Refunded, Split }
 
@@ -39,6 +42,17 @@ contract RoamlyEscrow is ReentrancyGuard {
         // Dispute offers: amount that goes back to the buyer, stored +1 so 0 means "no offer yet".
         uint128 buyerOffer;
         uint128 travelerOffer;
+        bool accepted;       // traveler committed to it — only these deals can be rated
+    }
+
+    struct Review {
+        uint8 stars;         // 0 = not rated yet, otherwise 1–5
+        string comment;
+    }
+
+    struct Reputation {
+        uint64 count;
+        uint64 totalStars;
     }
 
     IERC20 public immutable token;
@@ -47,6 +61,9 @@ contract RoamlyEscrow is ReentrancyGuard {
 
     uint256 public dealCount;
     mapping(uint256 => Deal) private _deals;
+    mapping(uint256 => Review) private _buyerReviews;    // written by the buyer, about the traveler
+    mapping(uint256 => Review) private _travelerReviews; // written by the traveler, about the buyer
+    mapping(address => Reputation) public reputation;
 
     event DealCreated(uint256 indexed id, address indexed buyer, address indexed traveler, uint256 amount, uint64 deliverBy, bytes32 ref);
     event DealAccepted(uint256 indexed id);
@@ -56,6 +73,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     event DisputeOpened(uint256 indexed id);
     event SplitProposed(uint256 indexed id, address indexed by, uint256 toBuyer);
     event DisputeSettled(uint256 indexed id, uint256 toBuyer, uint256 toTraveler, uint256 fee);
+    event Rated(uint256 indexed id, address indexed from, address indexed to, uint8 stars, string comment);
 
     error InvalidParams();
     error NotBuyer();
@@ -64,6 +82,7 @@ contract RoamlyEscrow is ReentrancyGuard {
     error WrongStatus(Status current);
     error TooEarly();
     error TooLate();
+    error AlreadyRated();
 
     constructor(IERC20 token_, address feeRecipient_, uint16 feeBps_) {
         if (address(token_) == address(0) || feeRecipient_ == address(0) || feeBps_ > MAX_FEE_BPS) revert InvalidParams();
@@ -128,6 +147,7 @@ contract RoamlyEscrow is ReentrancyGuard {
         _requireStatus(d, Status.Funded);
         if (block.timestamp > d.deliverBy) revert TooLate();
         d.status = Status.Accepted;
+        d.accepted = true;
         emit DealAccepted(id);
     }
 
@@ -187,6 +207,32 @@ contract RoamlyEscrow is ReentrancyGuard {
         _requireStatus(d, Status.Disputed);
         if (block.timestamp < d.disputedAt + DISPUTE_WINDOW) revert TooEarly();
         _settle(id, d, d.amount / 2);
+    }
+
+    // ---------- Ratings ----------
+
+    /// @notice Rate the other side of a finished deal, once. 1–5 stars and an optional short comment.
+    function rate(uint256 id, uint8 stars, string calldata comment) external {
+        Deal storage d = _deals[id];
+        if (stars < 1 || stars > 5 || bytes(comment).length > MAX_COMMENT_BYTES) revert InvalidParams();
+        if (!d.accepted || (d.status != Status.Released && d.status != Status.Refunded && d.status != Status.Split)) revert WrongStatus(d.status);
+        Review storage r;
+        address subject;
+        if (msg.sender == d.buyer) { r = _buyerReviews[id]; subject = d.traveler; }
+        else if (msg.sender == d.traveler) { r = _travelerReviews[id]; subject = d.buyer; }
+        else revert NotParty();
+        if (r.stars != 0) revert AlreadyRated();
+        r.stars = stars;
+        r.comment = comment;
+        Reputation storage rep = reputation[subject];
+        rep.count += 1;
+        rep.totalStars += stars;
+        emit Rated(id, msg.sender, subject, stars, comment);
+    }
+
+    /// @return byBuyer the buyer's review of the traveler; byTraveler the traveler's review of the buyer
+    function getReviews(uint256 id) external view returns (Review memory byBuyer, Review memory byTraveler) {
+        return (_buyerReviews[id], _travelerReviews[id]);
     }
 
     // ---------- Views ----------

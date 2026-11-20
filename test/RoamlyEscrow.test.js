@@ -205,6 +205,62 @@ describe('RoamlyEscrow', () => {
     });
   });
 
+  describe('ratings', () => {
+    async function released(){
+      const f = await delivered();
+      await f.escrow.connect(f.buyer).confirmDelivery(f.id);
+      return f;
+    }
+
+    it('both sides can rate each other once a deal is paid out', async () => {
+      const f = await loadFixture(released);
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 5, 'Perfect, arrived sealed'))
+        .to.emit(f.escrow, 'Rated').withArgs(f.id, f.buyer.address, f.traveler.address, 5, 'Perfect, arrived sealed');
+      await f.escrow.connect(f.traveler).rate(f.id, 4, 'Quick to reply');
+      const [byBuyer, byTraveler] = await f.escrow.getReviews(f.id);
+      expect([byBuyer.stars, byBuyer.comment]).to.deep.equal([5n, 'Perfect, arrived sealed']);
+      expect([byTraveler.stars, byTraveler.comment]).to.deep.equal([4n, 'Quick to reply']);
+      const rep = await f.escrow.reputation(f.traveler.address);
+      expect([rep.count, rep.totalStars]).to.deep.equal([1n, 5n]);
+    });
+    it('each side can rate only once', async () => {
+      const f = await loadFixture(released);
+      await f.escrow.connect(f.buyer).rate(f.id, 5, '');
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 1, 'changed my mind')).to.be.revertedWithCustomError(f.escrow, 'AlreadyRated');
+    });
+    it('rejects outsiders, bad star counts and long comments', async () => {
+      const f = await loadFixture(released);
+      await expect(f.escrow.connect(f.stranger).rate(f.id, 5, '')).to.be.revertedWithCustomError(f.escrow, 'NotParty');
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 0, '')).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 6, '')).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 5, 'x'.repeat(281))).to.be.revertedWithCustomError(f.escrow, 'InvalidParams');
+      await f.escrow.connect(f.buyer).rate(f.id, 5, 'ş'.repeat(140)); // 140 Turkish letters fit
+    });
+    it('cannot rate a deal that is still running', async () => {
+      const f = await loadFixture(delivered);
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 5, '')).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
+    });
+    it('cannot rate a request that was never accepted', async () => {
+      const f = await loadFixture(funded);
+      await f.escrow.connect(f.traveler).decline(f.id);
+      await expect(f.escrow.connect(f.buyer).rate(f.id, 1, 'declined me')).to.be.revertedWithCustomError(f.escrow, 'WrongStatus');
+    });
+    it('buyer can rate a traveler who accepted but never delivered', async () => {
+      const f = await loadFixture(accepted);
+      await time.increaseTo(f.deliverBy + 1);
+      await f.escrow.claimRefund(f.id);
+      await f.escrow.connect(f.buyer).rate(f.id, 1, 'Never showed up');
+      expect((await f.escrow.reputation(f.traveler.address)).count).to.equal(1);
+    });
+    it('split disputes can be rated', async () => {
+      const f = await loadFixture(disputed);
+      await time.increase(30 * DAY);
+      await f.escrow.settleStalemate(f.id);
+      await f.escrow.connect(f.traveler).rate(f.id, 2, 'Unfair dispute');
+      expect((await f.escrow.reputation(f.buyer.address)).totalStars).to.equal(2);
+    });
+  });
+
   it('keeps separate deals separate', async () => {
     const f = await loadFixture(deploy);
     const by = (await time.latest()) + DAY;

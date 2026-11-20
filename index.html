@@ -295,6 +295,7 @@
                 <div class="traveler-meta"><span id="side-rating"></span> · <span id="side-trips"></span> trips completed</div>
               </div>
             </div>
+            <div class="side-reviews" id="side-reviews"></div>
           </div>
           <div class="side-card sand-card">
             <h4>How you pay</h4>
@@ -412,9 +413,36 @@
 </footer>
 <div class="toast" id="toast" role="status"></div>
 
+<dialog class="rate-dialog" id="rate-dialog" aria-labelledby="rate-title">
+  <form method="dialog" onsubmit="event.preventDefault(); submitRating();">
+    <h2 class="sub-title" id="rate-title">Rate the traveler</h2>
+    <p class="form-hint" id="rate-sub"></p>
+    <div class="rate-stars" id="rate-stars" role="group" aria-label="Stars">
+      <button type="button" aria-label="1 star" onclick="setRateStars(1)">★</button>
+      <button type="button" aria-label="2 stars" onclick="setRateStars(2)">★</button>
+      <button type="button" aria-label="3 stars" onclick="setRateStars(3)">★</button>
+      <button type="button" aria-label="4 stars" onclick="setRateStars(4)">★</button>
+      <button type="button" aria-label="5 stars" onclick="setRateStars(5)">★</button>
+    </div>
+    <div class="form-group">
+      <label for="rate-comment">Comment <span class="muted-label">(optional)</span></label>
+      <textarea rows="3" id="rate-comment" maxlength="140" placeholder="How did it go?" oninput="updateRateCount()"></textarea>
+      <span class="form-hint rate-count" id="rate-count">0 / 140</span>
+    </div>
+    <div class="form-error" id="rate-error"></div>
+    <div class="dash-actions">
+      <button type="submit" class="btn btn-sm btn-primary">Save rating</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="$('rate-dialog').close()">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script src="deployments.js"></script>
-<script src="deployments.local.js"></script>
+<script>
+  // Local-chain addresses only exist on a dev machine (gitignored), so don't request them on the live site
+  if(['localhost', '127.0.0.1'].includes(location.hostname)) document.write('<script src="deployments.local.js"><\/script>');
+</script>
 <script src="chain.js"></script>
 <script src="app.js"></script>
 </body>
